@@ -29,9 +29,11 @@ class CameraAgentService : Service(), SignalingClient.Listener, WebRtcEngine.Lis
         val online: Boolean = false,
         val capturing: Boolean = false,
         val onDemand: Boolean = true,
+        val mode: CameraMode = CameraMode.DROP_IN,
         val viewerCount: Int = 0,
         val lastMotionMs: Long = 0L,
-        val statusText: String = "stopped",
+        val armedSinceMs: Long = 0L,
+        val statusText: String = "Disarmed",
     )
 
     private val _state = MutableStateFlow(AgentState())
@@ -53,6 +55,7 @@ class CameraAgentService : Service(), SignalingClient.Listener, WebRtcEngine.Lis
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> { stopAgent(); return START_NOT_STICKY }
+            ACTION_RESTART -> { restartAgent(); return START_STICKY }
             else -> startAgent()
         }
         return START_STICKY
@@ -68,15 +71,36 @@ class CameraAgentService : Service(), SignalingClient.Listener, WebRtcEngine.Lis
         }
         startForeground(NOTIF_ID, buildNotification("Starting…"))
 
-        engine = WebRtcEngine(this, this, config.onDemand).also { it.setMotionEnabled(config.motionEnabled) }
+        engine = WebRtcEngine(
+            context = this,
+            listener = this,
+            onDemand = config.onDemand,
+            facing = config.cameraFacing,
+            captureW = config.quality.width,
+            captureH = config.quality.height,
+            captureFps = config.quality.fps,
+        ).also { it.setMotionEnabled(config.motionEnabled && !config.onDemand) }
         signaling = SignalingClient(config.webSocketUrl, config.cameraToken, this).also { it.connect() }
-        _state.value = _state.value.copy(running = true, onDemand = config.onDemand, statusText = "connecting…")
+        _state.value = _state.value.copy(
+            running = true,
+            onDemand = config.onDemand,
+            mode = config.mode,
+            armedSinceMs = System.currentTimeMillis(),
+            statusText = "Connecting…",
+        )
+    }
+
+    /** Tear down and re-arm with the latest saved Config (applies setting changes). */
+    private fun restartAgent() {
+        signaling?.close(); signaling = null
+        engine?.stop(); engine = null
+        startAgent()
     }
 
     private fun stopAgent() {
         signaling?.close(); signaling = null
         engine?.stop(); engine = null
-        _state.value = AgentState(statusText = "stopped")
+        _state.value = AgentState(statusText = "Disarmed")
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
@@ -100,11 +124,11 @@ class CameraAgentService : Service(), SignalingClient.Listener, WebRtcEngine.Lis
     private fun updateState(transform: (AgentState) -> AgentState) {
         val s = transform(_state.value)
         val text = when {
-            !s.running -> "stopped"
-            !s.online -> "connecting…"
-            s.capturing && s.viewerCount > 0 -> "LIVE · ${s.viewerCount} viewer(s)"
-            s.onDemand -> "Standby · ready (camera off)"
-            else -> "On · watching for motion"
+            !s.running -> "Disarmed"
+            !s.online -> "Connecting…"
+            s.capturing && s.viewerCount > 0 -> "Live · ${s.viewerCount} watching"
+            s.onDemand -> "Protected · Drop In standby"
+            else -> "Protected · Active streaming"
         }
         _state.value = s.copy(statusText = text)
         if (s.running && s.online) updateNotification(text)
@@ -194,6 +218,7 @@ class CameraAgentService : Service(), SignalingClient.Listener, WebRtcEngine.Lis
         private const val CHANNEL_ID = "camera_agent"
         private const val NOTIF_ID = 1
         const val ACTION_STOP = "com.meta.portal.security.STOP"
+        const val ACTION_RESTART = "com.meta.portal.security.RESTART"
 
         fun start(context: Context) {
             val intent = Intent(context, CameraAgentService::class.java)
@@ -203,6 +228,13 @@ class CameraAgentService : Service(), SignalingClient.Listener, WebRtcEngine.Lis
 
         fun stop(context: Context) {
             context.startService(Intent(context, CameraAgentService::class.java).setAction(ACTION_STOP))
+        }
+
+        /** Re-arm with the latest saved Config. Only meaningful while armed. */
+        fun restart(context: Context) {
+            val intent = Intent(context, CameraAgentService::class.java).setAction(ACTION_RESTART)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent)
+            else context.startService(intent)
         }
     }
 }

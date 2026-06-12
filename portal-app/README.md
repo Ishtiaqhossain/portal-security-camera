@@ -1,19 +1,35 @@
-# Portal app — camera agent
+# Portal app — security camera agent
 
-The Android app that runs on the Portal device. It captures the camera +
-microphone, connects to the signaling server, answers WebRTC offers from
-browser viewers, plays back viewer talk-back audio, runs motion detection, and
-shows a persistent **LIVE** indicator while active.
+The Android app that runs on the Portal device. It's a background security
+camera: it connects to the signaling server, answers WebRTC offers from browser
+viewers, streams camera + mic, plays viewer talk-back audio, and runs motion
+detection. The device shows a **professional status dashboard — not the live
+feed** (the feed is for remote viewers only).
+
+## Modes
+
+- **Drop In** — the camera stays off and only captures while a viewer is
+  connected (wakes on connect, sleeps on disconnect). Best for privacy/power.
+- **Active** — the camera streams continuously in the background, which is what
+  enables motion alerts while you're away.
+
+## Screens
+
+- **Dashboard** — shield status (Disarmed → Protected → Live), mode selector,
+  live stats (connection, viewers, last motion, quality), and Arm/Disarm.
+- **Settings** — connection (server URL + token), mode, camera facing
+  (front/back), video quality (480p/720p/1080p), motion alerts, start-on-boot.
 
 ## Architecture
 
 ```
-MainActivity (Compose UI)
-   └─ binds to ─▶ CameraAgentService  (foreground service, always-on)
+MainActivity (Compose: Dashboard + Settings, no on-device feed)
+   └─ binds to ─▶ CameraAgentService  (foreground service; runs in background)
                      ├─ SignalingClient   (OkHttp WebSocket ⇄ signaling-server)
-                     └─ WebRtcEngine       (camera+mic capture, one PeerConnection per viewer)
-                           ├─ MotionDetector  (VideoSink, luma frame-diff)
+                     └─ WebRtcEngine       (on-demand or continuous capture; one PeerConnection per viewer)
+                           ├─ MotionDetector  (VideoSink, luma frame-diff; Active mode)
                            └─ remote audio    (viewer talk-back, auto-played)
+BootReceiver ─▶ re-arms the service after reboot when "Start on boot" is set.
 ```
 
 WebRTC roles match the web viewer: the **viewer offers**, the **camera answers**.
@@ -63,19 +79,24 @@ npx -y @meta-quest/hzdb app launch com.meta.portal.security
 
 ## Configure on device
 
-1. Launch the app. Grant camera, microphone, and notification permissions.
-2. Enter the **signaling server URL** (e.g. `wss://your-server`) and the
-   **camera token** (the server's `CAMERA_TOKEN`).
-3. Tap **Start camera**. The foreground notification and on-screen LIVE badge
-   confirm it's streaming. Open the web viewer to watch.
+1. Launch the app and grant camera + microphone permissions.
+2. Open **Settings** → enter the **signaling server URL** (e.g. `wss://your-server`)
+   and the **camera token** (the server's `CAMERA_TOKEN`); pick a **mode**,
+   camera facing, and quality; **Save**.
+3. On the dashboard tap **Arm**. The shield turns green (**Protected**); it goes
+   red (**Live**) when a viewer connects. Open the web viewer to watch.
+
+For local testing over USB without a public server, bridge the device to a
+laptop server with `adb reverse tcp:8080 tcp:8080` and use `ws://localhost:8080`.
 
 ## Files
 
 | File | Role |
 |------|------|
-| `MainActivity.kt` | Compose UI: config, permissions, live preview, controls. |
-| `CameraAgentService.kt` | Always-on foreground service; wires signaling ⇄ engine; LIVE notification. |
-| `WebRtcEngine.kt` | PeerConnectionFactory, camera/mic capture, per-viewer peers. |
+| `MainActivity.kt` | Compose UI: status dashboard + Settings (no on-device feed). |
+| `CameraAgentService.kt` | Foreground service; wires signaling ⇄ engine; arm/disarm/restart. |
+| `WebRtcEngine.kt` | PeerConnectionFactory; on-demand or continuous capture; per-viewer peers. |
 | `SignalingClient.kt` | WebSocket client speaking the server's JSON protocol. |
-| `MotionDetector.kt` | Luma frame-differencing on the live video. |
-| `Config.kt` | Persisted settings (server URL, token, motion toggle). |
+| `MotionDetector.kt` | Luma frame-differencing on the live video (Active mode). |
+| `BootReceiver.kt` | Re-arms the agent after reboot when "Start on boot" is set. |
+| `Config.kt` | Persisted settings (server, token, mode, facing, quality, motion, boot). |

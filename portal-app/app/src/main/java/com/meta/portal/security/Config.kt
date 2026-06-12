@@ -2,18 +2,48 @@ package com.meta.portal.security
 
 import android.content.Context
 
-/** Persisted connection settings for the camera agent. */
+/** Capture mode for the security camera. */
+enum class CameraMode {
+    /** Drop In — camera stays off until a viewer connects, then streams on demand. */
+    DROP_IN,
+
+    /** Active — camera streams continuously in the background (enables motion alerts). */
+    ACTIVE;
+
+    val storage: String get() = if (this == ACTIVE) "active" else "dropin"
+
+    companion object {
+        fun from(s: String?): CameraMode = if (s == "active") ACTIVE else DROP_IN
+    }
+}
+
+/** Video capture quality presets. */
+enum class VideoQuality(val label: String, val width: Int, val height: Int, val fps: Int) {
+    LOW("480p", 640, 480, 30),
+    MEDIUM("720p", 1280, 720, 30),
+    HIGH("1080p", 1920, 1080, 30);
+
+    companion object {
+        fun from(s: String?): VideoQuality = entries.firstOrNull { it.label == s } ?: MEDIUM
+    }
+}
+
+/** Persisted configuration for the camera agent. */
 data class Config(
     val serverUrl: String = "",
     val cameraToken: String = "",
-    val motionEnabled: Boolean = true,
-    // On-demand: the camera stays in standby and only captures while a viewer is
-    // connected (camera off otherwise). When false, the camera captures
-    // continuously so motion detection can run even with no viewer watching.
-    val onDemand: Boolean = true,
+    val mode: CameraMode = CameraMode.DROP_IN,
+    val motionEnabled: Boolean = false,
+    val cameraFacing: String = "front", // "front" | "back"
+    val quality: VideoQuality = VideoQuality.MEDIUM,
+    val startOnBoot: Boolean = false,
 ) {
     val isValid: Boolean
         get() = serverUrl.isNotBlank() && cameraToken.isNotBlank()
+
+    /** Drop In mode means capture only while a viewer is connected. */
+    val onDemand: Boolean
+        get() = mode == CameraMode.DROP_IN
 
     /** Normalize http(s) -> ws(s) for the WebSocket connection. */
     val webSocketUrl: String
@@ -29,8 +59,16 @@ data class Config(
             return Config(
                 serverUrl = p.getString("serverUrl", "") ?: "",
                 cameraToken = p.getString("cameraToken", "") ?: "",
-                motionEnabled = p.getBoolean("motionEnabled", true),
-                onDemand = p.getBoolean("onDemand", true),
+                // Back-compat: the old `onDemand` boolean maps onto the mode.
+                mode = when {
+                    p.contains("mode") -> CameraMode.from(p.getString("mode", "dropin"))
+                    p.contains("onDemand") -> if (p.getBoolean("onDemand", true)) CameraMode.DROP_IN else CameraMode.ACTIVE
+                    else -> CameraMode.DROP_IN
+                },
+                motionEnabled = p.getBoolean("motionEnabled", false),
+                cameraFacing = p.getString("cameraFacing", "front") ?: "front",
+                quality = VideoQuality.from(p.getString("quality", "720p")),
+                startOnBoot = p.getBoolean("startOnBoot", false),
             )
         }
 
@@ -38,8 +76,11 @@ data class Config(
             context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
                 .putString("serverUrl", config.serverUrl)
                 .putString("cameraToken", config.cameraToken)
+                .putString("mode", config.mode.storage)
                 .putBoolean("motionEnabled", config.motionEnabled)
-                .putBoolean("onDemand", config.onDemand)
+                .putString("cameraFacing", config.cameraFacing)
+                .putString("quality", config.quality.label)
+                .putBoolean("startOnBoot", config.startOnBoot)
                 .apply()
         }
     }

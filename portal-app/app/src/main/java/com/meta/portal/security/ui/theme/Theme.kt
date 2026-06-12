@@ -17,8 +17,11 @@ val Surface2 = Color(0xFF353535)
 val Primary = Color(0xFF0866FF)
 val OnPrimary = Color(0xFFF0F0F0)
 val TextColor = Color(0xFFDADADA)
+val TextDim = Color(0xFF8A8A8A)
 val Danger = Color(0xFFE5484D)
 val Ok = Color(0xFF30A46C)
+val Amber = Color(0xFFE0A23B)
+val Outline = Color(0xFF3A3A3A)
 
 private val PortalColors = darkColorScheme(
     primary = Primary,

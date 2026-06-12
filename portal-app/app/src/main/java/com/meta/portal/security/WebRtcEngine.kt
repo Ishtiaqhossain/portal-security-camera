@@ -33,8 +33,12 @@ import java.util.concurrent.ConcurrentHashMap
 class WebRtcEngine(
     private val context: Context,
     private val listener: Listener,
-    // On-demand: open the camera only while a viewer is connected.
+    // On-demand (Drop In): open the camera only while a viewer is connected.
     private val onDemand: Boolean = true,
+    private val facing: String = "front",      // "front" | "back"
+    private val captureW: Int = 1280,
+    private val captureH: Int = 720,
+    private val captureFps: Int = 30,
 ) {
     interface Listener {
         fun onAnswer(viewerId: String, sdp: String)
@@ -101,7 +105,13 @@ class WebRtcEngine(
         if (capturing) return
         val enumerator = Camera2Enumerator(context)
         val names = enumerator.deviceNames
-        val deviceName = names.firstOrNull { enumerator.isFrontFacing(it) }
+        val preferred = if (facing == "back") {
+            names.firstOrNull { enumerator.isBackFacing(it) }
+        } else {
+            names.firstOrNull { enumerator.isFrontFacing(it) }
+        }
+        val deviceName = preferred
+            ?: names.firstOrNull { enumerator.isFrontFacing(it) }
             ?: names.firstOrNull()
             ?: run { Log.e(TAG, "no camera found"); return }
 
@@ -110,7 +120,7 @@ class WebRtcEngine(
         surfaceHelper = SurfaceTextureHelper.create("CaptureThread", eglBase.eglBaseContext)
         videoSource = factory.createVideoSource(false)
         capturer.initialize(surfaceHelper, context, videoSource!!.capturerObserver)
-        capturer.startCapture(CAPTURE_W, CAPTURE_H, CAPTURE_FPS)
+        capturer.startCapture(captureW, captureH, captureFps)
 
         localVideoTrack = factory.createVideoTrack(VIDEO_ID, videoSource).apply {
             setEnabled(true)
@@ -244,8 +254,5 @@ class WebRtcEngine(
         private const val STREAM_ID = "portal-cam"
         private const val VIDEO_ID = "video0"
         private const val AUDIO_ID = "audio0"
-        private const val CAPTURE_W = 1280
-        private const val CAPTURE_H = 720
-        private const val CAPTURE_FPS = 30
     }
 }
