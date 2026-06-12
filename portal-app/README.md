@@ -13,20 +13,34 @@ feed** (the feed is for remote viewers only).
 - **Active** — the camera streams continuously in the background, which is what
   enables motion alerts while you're away.
 
+The app is gated behind the **device PIN** on launch (`KeyguardManager`), so a
+houseguest can't open it or add viewers.
+
 ## Screens
 
 - **Dashboard** — shield status (Disarmed → Protected → Live), mode selector,
   live stats (connection, viewers, last motion, quality), and Arm/Disarm.
-- **Settings** — connection (server URL + token), mode, camera facing
-  (front/back), video quality (480p/720p/1080p), motion alerts, start-on-boot.
+- **Viewers (Manage access)** — generate a single-use **QR** to enroll a viewer,
+  and list / revoke enrolled devices.
+- **Settings** — connection (server URL + camera token), mode, video quality
+  (480p/720p/1080p), motion alerts, start-on-boot.
+
+## Camera identity
+
+On first arm the app generates a non-exportable **EC P-256 key in the Android
+Keystore** (`CameraIdentity.kt`), provisions its public key with the server
+(bootstrap via `CAMERA_TOKEN`), and thereafter authenticates by **signing the
+server's nonce** — the shared token never gates ongoing access.
 
 ## Architecture
 
 ```
-MainActivity (Compose: Dashboard + Settings, no on-device feed)
-   └─ binds to ─▶ CameraAgentService  (foreground service; runs in background)
-                     ├─ SignalingClient   (OkHttp WebSocket ⇄ signaling-server)
-                     └─ WebRtcEngine       (on-demand or continuous capture; one PeerConnection per viewer)
+MainActivity (Compose: Dashboard + Viewers + Settings; device-PIN gate; no on-device feed)
+   └─ binds to ─▶ CameraAgentService  (foreground service + wake-lock; runs in background)
+                     ├─ SignalingClient   (WebSocket ⇄ server; camera challenge-response)
+                     ├─ CameraIdentity     (Keystore EC key; signs nonces)
+                     ├─ CameraApi/QrGen     (provision + enroll tickets; QR rendering)
+                     └─ WebRtcEngine        (on-demand or continuous capture; one PeerConnection per viewer)
                            ├─ MotionDetector  (VideoSink, luma frame-diff; Active mode)
                            └─ remote audio    (viewer talk-back, auto-played)
 BootReceiver ─▶ re-arms the service after reboot when "Start on boot" is set.
@@ -79,12 +93,14 @@ npx -y @meta-quest/hzdb app launch com.meta.portal.security
 
 ## Configure on device
 
-1. Launch the app and grant camera + microphone permissions.
+1. Launch the app (confirm the device PIN) and grant camera + mic permissions.
 2. Open **Settings** → enter the **signaling server URL** (e.g. `wss://your-server`)
-   and the **camera token** (the server's `CAMERA_TOKEN`); pick a **mode**,
-   camera facing, and quality; **Save**.
-3. On the dashboard tap **Arm**. The shield turns green (**Protected**); it goes
-   red (**Live**) when a viewer connects. Open the web viewer to watch.
+   and the **camera token** (the server's `CAMERA_TOKEN`, used to provision the
+   device key); pick a **mode** and **quality**; **Save**.
+3. On the dashboard tap **Arm**. The Portal provisions its key and connects; the
+   shield turns green (**Protected**), red (**Live**) when a viewer connects.
+4. To add a viewer: **Viewers → Add → Show QR**, and scan it from the phone/laptop
+   on the same Wi-Fi.
 
 For local testing over USB without a public server, bridge the device to a
 laptop server with `adb reverse tcp:8080 tcp:8080` and use `ws://localhost:8080`.
@@ -93,10 +109,13 @@ laptop server with `adb reverse tcp:8080 tcp:8080` and use `ws://localhost:8080`
 
 | File | Role |
 |------|------|
-| `MainActivity.kt` | Compose UI: status dashboard + Settings (no on-device feed). |
-| `CameraAgentService.kt` | Foreground service; wires signaling ⇄ engine; arm/disarm/restart. |
+| `MainActivity.kt` | Compose UI: dashboard + Viewers + Settings, device-PIN gate (no on-device feed). |
+| `ManageAccessScreen.kt` | Viewers screen: generate enrollment QR, list/revoke viewers. |
+| `CameraAgentService.kt` | Foreground service + wake-lock; wires signaling ⇄ engine; arm/disarm/restart; provisions the key. |
+| `CameraIdentity.kt` | Keystore EC P-256 key; signs server nonces (challenge-response). |
+| `CameraApi.kt` / `QrGen.kt` | REST client for `/camera/*` (provision, enroll, revoke) + QR rendering. |
 | `WebRtcEngine.kt` | PeerConnectionFactory; on-demand or continuous capture; per-viewer peers. |
-| `SignalingClient.kt` | WebSocket client speaking the server's JSON protocol. |
+| `SignalingClient.kt` | WebSocket client; camera challenge-response + WebRTC signaling. |
 | `MotionDetector.kt` | Luma frame-differencing on the live video (Active mode). |
 | `BootReceiver.kt` | Re-arms the agent after reboot when "Start on boot" is set. |
-| `Config.kt` | Persisted settings (server, token, mode, facing, quality, motion, boot). |
+| `Config.kt` | Persisted settings (server, token, mode, quality, motion, boot, cameraId). |

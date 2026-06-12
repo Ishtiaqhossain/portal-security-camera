@@ -14,8 +14,8 @@ server brokers the handshake; a TURN server relays media across NATs.
 
 | Path | What |
 |------|------|
-| `signaling-server/` | Node.js (ESM) WebSocket broker. Relays SDP/ICE + motion; mints TURN creds; Web Push; per-viewer auth (`auth.js`); serves the web client. |
-| `web-client/` | Browser viewer (`index.html`/`app.js`), admin console (`admin.html`/`admin.js`), invite redemption (`redeem.*`), and webcam camera simulator (`camera-sim.*`, the reference impl for the app). |
+| `signaling-server/` | Node.js (ESM) broker. Relays SDP/ICE + motion; mints TURN creds; Web Push; per-viewer auth + enrollment + per-device camera identity (`auth.js`); serves the web client. |
+| `web-client/` | Browser viewer (`index.html`/`app.js`), enroll page (`enroll.*`), admin console (`admin.*`), and webcam camera simulator (`camera-sim.*`, the reference impl for the app). |
 | `portal-app/` | Android (Kotlin/Compose) camera agent that runs on the Portal. |
 | `deploy/` | docker-compose stack (Caddy auto-HTTPS + signaling + coturn) for remote access. |
 
@@ -24,7 +24,8 @@ server brokers the handshake; a TURN server relays media across NATs.
 ```bash
 # Web stack — run + test locally (no device needed)
 cd signaling-server && npm install && cp .env.example .env && npm start
-node test-signaling.mjs            # 11 end-to-end signaling tests
+# tests (start server first, with CAMERA_TOKEN/JWT_SECRET/ADMIN_PASSWORD in env):
+node test-signaling.mjs && node test-push.mjs && node test-enroll.mjs && node test-camera-key.mjs
 
 # Android app — needs JDK 17–21 (NOT the default Java 24)
 cd portal-app
@@ -48,14 +49,16 @@ docker compose up -d --build
   (no Firebase/FCM — alerts ride the WebSocket). Dark theme mandatory, top 64dp
   reserved for the system overlay, landscape-first, touch targets ≥ 52dp, icon
   512×512 in `mipmap-xxxhdpi/`.
-- **Security:** `CAMERA_TOKEN` for the device; **per-viewer auth** for browsers
-  via **device-initiated QR enrollment** (owner shows a single-use QR on the
-  Portal → viewer scans on the same Wi-Fi → device-bound revocable token).
-  Manage from the Portal's Viewers screen or `/admin.html`. Legacy shared
-  `VIEWER_TOKEN` is optional/local-only.
-  Media is DTLS-SRTP encrypted; the app shows a LIVE badge + notification.
-  Secrets live in gitignored `.env` — never commit them. Full model in
-  `SECURITY.md`.
+- **Security** (full model in `SECURITY.md`):
+  - **Viewers:** device-initiated **QR enrollment** (single-use QR on the Portal
+    → scan on the same Wi-Fi → device-bound revocable token; short-lived HS256
+    access + 30-day refresh). Manage from the Portal Viewers screen or `/admin.html`.
+  - **Camera:** per-device **EC P-256 key in the Android Keystore**; authenticates
+    by **signing a server nonce** (challenge-response). Shared `CAMERA_TOKEN` is
+    now only a provisioning bootstrap + simulator fallback (`ALLOW_CAMERA_TOKEN`).
+  - Admin-login rate-limit/lockout, security headers, per-socket error boundary;
+    media DTLS-SRTP encrypted; device-PIN gate + LIVE badge on the app.
+  - Legacy `VIEWER_TOKEN` is optional/local-only. Secrets in gitignored `.env`.
 
 ## Environment gotchas (this machine)
 
@@ -73,13 +76,20 @@ docker compose up -d --build
 - A local dev signaling server may be running in the background on `:8080` for
   browser testing.
 
+## Tests
+
+`signaling-server/`: `test-signaling.mjs` (11), `test-push.mjs` (6),
+`test-enroll.mjs` (17), `test-camera-key.mjs` (11). All passing.
+
 ## Status
 
-- ✅ Signaling server + web viewer + camera simulator — built; 11/11 tests pass.
-- ✅ Android camera agent — builds clean (APK produced); not yet run on hardware.
-- ✅ Remote backend — built; compose config + image build + TURN issuance verified.
-- ✅ Web Push motion alerts (VAPID) — server + service worker; 6/6 push tests pass.
-- ✅ Per-viewer auth — admin console, invite links, short-lived JWTs, instant
-  revocation, audit log; 18/18 auth tests pass. See `SECURITY.md`.
-- ⏳ Deploy + verify on a real Portal device (needs the device + a session restart
-  for hzdb MCP tools).
+- ✅ Full system runs on a real **Portal Go** — install/launch/arm, live view,
+  two-way audio, and motion alerts verified on hardware.
+- ✅ Professional Android app — status dashboard (no on-device feed), Drop In /
+  Active modes, Viewers/QR enrollment screen, device-PIN gate, wake-lock.
+- ✅ Per-viewer device-QR enrollment + per-device camera key — verified on device
+  (Portal provisions its key and registers by signature).
+- ✅ Web Push motion alerts (VAPID); remote backend (Caddy + signaling + coturn)
+  builds & TURN issuance verified.
+- ⏳ Deploy to a public host for true remote viewing (stack ready; needs a VPS +
+  domain). Admin 2FA + admin-console camera UI still open (see `SECURITY.md`).

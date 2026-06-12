@@ -11,6 +11,14 @@
 
 const $ = (id) => document.getElementById(id);
 
+// Surface any uncaught error/rejection in the status bar (debug aid).
+function showFatal(text) {
+  const s = document.getElementById('status');
+  if (s) { s.textContent = text; s.className = 'status error'; }
+}
+window.addEventListener('error', (ev) => { if (ev.error) showFatal('JS error: ' + (ev.error.message || ev.message)); });
+window.addEventListener('unhandledrejection', (ev) => showFatal('error: ' + (ev.reason?.message || ev.reason)));
+
 const ui = {
   status: $('status'),
   connectCard: $('connect-card'),
@@ -51,16 +59,28 @@ function httpBase() {
   return location.origin;
 }
 
+// The viewer is always served by the signaling server, so the API + WebSocket
+// live at this page's own origin. (Kept overridable above only if a server is
+// explicitly typed, but default to same-origin to avoid stale-value bugs.)
+
 // --- Init: detect auth mode and choose the right entry flow -----------------
 
 async function init() {
   registerServiceWorker();
   refreshNotifyButton();
   const saved = JSON.parse(localStorage.getItem('portal-viewer') || '{}');
-  ui.server.value = new URLSearchParams(location.search).get('server') ?? saved.server ?? '';
+  // Same-origin by default. Ignore any stale saved "server" value, which
+  // previously made /auth/config fetch the wrong host and silently fail.
+  ui.server.value = new URLSearchParams(location.search).get('server') ?? '';
 
+  setStatus('checking access…');
   let cfg = {};
-  try { cfg = await (await fetch(httpBase() + '/auth/config')).json(); } catch { /* offline */ }
+  try {
+    cfg = await (await fetch(httpBase() + '/auth/config')).json();
+  } catch (e) {
+    setStatus('cannot reach ' + httpBase() + ' — ' + (e?.message || e), 'error');
+    return;
+  }
   state.authEnabled = !!cfg.authEnabled;
 
   if (state.authEnabled) {

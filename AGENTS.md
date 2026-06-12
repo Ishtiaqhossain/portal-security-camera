@@ -39,9 +39,19 @@ If you change the protocol or negotiation, update **server.js**, **app.js**,
 
 ## Auth (`auth.js`)
 
-- Camera registers with `token: CAMERA_TOKEN`. Viewers register with
-  `accessToken: <JWT>` (per-viewer) — or legacy `token: VIEWER_TOKEN` if that env
-  is still set. Enable per-viewer auth by setting `JWT_SECRET` + `ADMIN_PASSWORD`.
+- **Camera** registers with `cameraId`; the server replies `camera-challenge`
+  (nonce), the camera replies `camera-auth { signature }` signed with its
+  per-device **EC P-256 Keystore key** (verified against the provisioned public
+  key). First run: `POST /camera/provision { name, publicKey }` (bootstrap via
+  `CAMERA_TOKEN`) returns the cameraId. Legacy `token: CAMERA_TOKEN` register
+  still works while `ALLOW_CAMERA_TOKEN` is true (simulator/migration).
+  Android: `CameraIdentity.kt` (Keystore EC, SHA256withECDSA/DER).
+- **Viewers** register with `accessToken: <JWT>` (per-viewer) — or legacy
+  `token: VIEWER_TOKEN` if that env is still set. Enable per-viewer auth by
+  setting `JWT_SECRET` + `ADMIN_PASSWORD`.
+- Hardening: admin-login rate-limit/lockout + enroll throttle; security headers
+  on all responses; the WS message switch is wrapped so a handler error closes
+  only that socket. Signatures verified with `crypto.verify('sha256', …)` (DER).
 - Enrollment is **device-initiated**: the Portal calls camera-auth
   `/camera/enroll/start` to mint a single-use ticket and renders it as a QR; the
   viewer's phone POSTs it to public `/auth/enroll` (which enforces a
@@ -95,9 +105,16 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk     # or: hzdb app inst
   CLI still works from the shell (`npx -y @meta-quest/hzdb docs search …`,
   `… app install …`).
 
-## Status (see the task list / commit history for current state)
+## Tests (`signaling-server/`)
 
-- ✅ Signaling server + web viewer + camera simulator — built, 11/11 signaling
-  tests pass.
-- ✅ Android camera agent — builds clean (APK produced). Not yet run on hardware.
-- ⏳ End-to-end verification on a real Portal device.
+`test-signaling.mjs` (11), `test-push.mjs` (6), `test-enroll.mjs` (17),
+`test-camera-key.mjs` (11). Start the server first with the auth secrets in env.
+
+## Status (see commit history for detail)
+
+- ✅ Verified end-to-end on a real **Portal Go**: install/launch/arm, live view,
+  two-way audio, motion alerts, device-QR viewer enrollment, and the Portal
+  provisioning + signing with its per-device key.
+- ✅ Professional Android app (dashboard, Drop In / Active modes, Viewers/QR
+  screen, PIN gate, wake-lock); Web Push; remote `deploy/` stack builds.
+- ⏳ Deploy to a public host for remote viewing; admin 2FA + admin camera UI open.
