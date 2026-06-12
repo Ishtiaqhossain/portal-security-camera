@@ -25,6 +25,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join, normalize, extname } from 'node:path';
 import { WebSocketServer } from 'ws';
 import { initPush, vapidPublicKey, addSubscription, removeSubscription, sendMotionPush } from './push.js';
+import * as auth from './auth.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const WEB_ROOT = join(__dirname, '..', 'web-client');
@@ -38,10 +39,13 @@ try {
 }
 
 const push = initPush();
+const authState = auth.initAuth();
 
 const PORT = Number(process.env.PORT || 8080);
 const CAMERA_TOKEN = process.env.CAMERA_TOKEN || 'change-me-camera';
-const VIEWER_TOKEN = process.env.VIEWER_TOKEN || 'change-me-viewer';
+// Legacy shared viewer token. When per-viewer auth (JWT) is enabled, this is a
+// fallback you can disable by unsetting VIEWER_TOKEN. Leave set for local tests.
+const VIEWER_TOKEN = process.env.VIEWER_TOKEN || '';
 const CAMERA_ID = process.env.CAMERA_ID || 'home';
 
 // Build the ICE server list handed to each client at registration. STUN is
@@ -88,11 +92,142 @@ const MIME = {
   '.webmanifest': 'application/manifest+json',
 };
 
+function sendJson(res, status, obj) {
+  const body = JSON.stringify(obj);
+  res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' });
+  res.end(body);
+}
+
+function readJsonBody(req) {
+  return new Promise((resolve) => {
+    let data = '';
+    req.on('data', (c) => {
+      data += c;
+      if (data.length > 1_000_000) req.destroy(); // cap body size
+    });
+    req.on('end', () => {
+      try { resolve(data ? JSON.parse(data) : {}); } catch { resolve(null); }
+    });
+    req.on('error', () => resolve(null));
+  });
+}
+
+function clientIp(req) {
+  // Behind a single trusted proxy (Caddy), the real client IP is the LAST entry
+  // it appends to X-Forwarded-For. Taking the first would let a client spoof the
+  // header (e.g. to fake being on the camera's network during enrollment).
+  const xff = (req.headers['x-forwarded-for'] || '')
+    .split(',').map((s) => s.trim()).filter(Boolean);
+  if (xff.length) return xff[xff.length - 1];
+  return req.socket?.remoteAddress || 'unknown';
+}
+
+// REST API for auth + admin. Returns true if it handled the request.
+async function handleApi(req, res) {
+  const url = req.url.split('?')[0];
+  const method = req.method;
+
+  // --- public auth endpoints ---
+  if (url === '/auth/config' && method === 'GET') {
+    return sendJson(res, 200, { authEnabled: auth.isEnabled(), legacyToken: !!VIEWER_TOKEN });
+  }
+  if (url === '/auth/admin' && method === 'POST') {
+    const body = await readJsonBody(req);
+    const token = body && auth.adminLogin(body.password);
+    if (!token) { auth.record('admin_login_fail', { ip: clientIp(req) }); return sendJson(res, 401, { error: 'invalid password' }); }
+    auth.record('admin_login', { ip: clientIp(req) });
+    return sendJson(res, 200, { adminToken: token });
+  }
+  if (url === '/auth/enroll' && method === 'POST') {
+    const body = await readJsonBody(req);
+    const result = body ? auth.enroll(body.token, clientIp(req)) : { error: 'invalid' };
+    if (result.error) {
+      auth.record('enroll_fail', { reason: result.error, ip: clientIp(req) });
+      const msg = result.error === 'network'
+        ? 'You must be on the same Wi-Fi as the camera to enroll.'
+        : 'This enrollment code is invalid or has expired.';
+      return sendJson(res, 400, { error: msg, reason: result.error });
+    }
+    auth.record('enroll', { viewerId: result.viewer.id, name: result.viewer.name, ip: clientIp(req) });
+    notifyCameraEnrolled(result.viewer);
+    return sendJson(res, 200, result);
+  }
+  if (url === '/auth/refresh' && method === 'POST') {
+    const body = await readJsonBody(req);
+    const result = body && auth.refresh(body.refreshToken);
+    console.log(`[http] /auth/refresh -> ${result ? `OK (${result.viewer.name})` : 'DENIED (revoked/expired/unknown)'}`);
+    if (!result) return sendJson(res, 401, { error: 'refresh denied' });
+    return sendJson(res, 200, result);
+  }
+
+  // --- camera-authenticated endpoints (the Portal manages its own access) ---
+  if (url.startsWith('/camera/')) {
+    if (!requireCamera(req)) return sendJson(res, 401, { error: 'camera auth required' });
+    if (url === '/camera/enroll/start' && method === 'POST') {
+      const body = await readJsonBody(req);
+      return sendJson(res, 200, auth.createEnrollTicket(body?.name, clientIp(req)));
+    }
+    if (url === '/camera/viewers' && method === 'GET') {
+      return sendJson(res, 200, { viewers: auth.listViewers() });
+    }
+    if (url === '/camera/revoke' && method === 'POST') {
+      const body = await readJsonBody(req);
+      const v = body && auth.setRevoked(body.id, true);
+      if (!v) return sendJson(res, 404, { error: 'no such viewer' });
+      auth.record('revoke', { viewerId: v.id, name: v.name, by: 'camera' });
+      kickViewer(v.id);
+      return sendJson(res, 200, { viewer: v });
+    }
+    if (url === '/camera/enable' && method === 'POST') {
+      const body = await readJsonBody(req);
+      const v = body && auth.setRevoked(body.id, false);
+      if (!v) return sendJson(res, 404, { error: 'no such viewer' });
+      auth.record('enable', { viewerId: v.id, name: v.name, by: 'camera' });
+      return sendJson(res, 200, { viewer: v });
+    }
+    return sendJson(res, 404, { error: 'not found' });
+  }
+
+  // --- admin-only endpoints (web console: view/revoke/audit) ---
+  if (url.startsWith('/admin/')) {
+    if (!auth.requireAdmin(req.headers['authorization'])) {
+      return sendJson(res, 401, { error: 'admin auth required' });
+    }
+    if (url === '/admin/viewers' && method === 'GET') {
+      return sendJson(res, 200, { viewers: auth.listViewers() });
+    }
+    if (url === '/admin/revoke' && method === 'POST') {
+      const body = await readJsonBody(req);
+      const v = body && auth.setRevoked(body.id, true);
+      if (!v) return sendJson(res, 404, { error: 'no such viewer' });
+      auth.record('revoke', { viewerId: v.id, name: v.name });
+      kickViewer(v.id); // drop any live sessions immediately
+      return sendJson(res, 200, { viewer: v });
+    }
+    if (url === '/admin/enable' && method === 'POST') {
+      const body = await readJsonBody(req);
+      const v = body && auth.setRevoked(body.id, false);
+      if (!v) return sendJson(res, 404, { error: 'no such viewer' });
+      auth.record('enable', { viewerId: v.id, name: v.name });
+      return sendJson(res, 200, { viewer: v });
+    }
+    if (url === '/admin/audit' && method === 'GET') {
+      return sendJson(res, 200, { audit: auth.listAudit() });
+    }
+  }
+
+  return sendJson(res, 404, { error: 'not found' });
+}
+
 const httpServer = http.createServer(async (req, res) => {
+  console.log(`[http] ${req.method} ${req.url}`);
   if (req.url === '/healthz') {
     res.writeHead(200, { 'content-type': 'text/plain' });
     res.end('ok');
     return;
+  }
+  if (req.url.startsWith('/auth/') || req.url.startsWith('/admin/') || req.url.startsWith('/camera/')) {
+    return handleApi(req, res);
   }
   // Map URL to a file inside WEB_ROOT, defaulting to index.html.
   let urlPath = decodeURIComponent((req.url || '/').split('?')[0]);
@@ -105,7 +240,10 @@ const httpServer = http.createServer(async (req, res) => {
   }
   try {
     const body = await readFile(filePath);
-    res.writeHead(200, { 'content-type': MIME[extname(filePath)] || 'application/octet-stream' });
+    res.writeHead(200, {
+      'content-type': MIME[extname(filePath)] || 'application/octet-stream',
+      'cache-control': 'no-cache, no-store, must-revalidate', // always get fresh client code
+    });
     res.end(body);
   } catch {
     res.writeHead(404);
@@ -134,8 +272,31 @@ function broadcastToViewers(obj) {
   for (const v of viewers()) send(v.ws, obj);
 }
 
-wss.on('connection', (ws) => {
-  const peer = { ws, role: null, id: String(nextId++) };
+// Immediately drop any live sessions for a revoked viewer.
+function kickViewer(viewerId) {
+  for (const c of clients.values()) {
+    if (c.role === 'viewer' && c.viewer && c.viewer.id === viewerId) {
+      send(c.ws, { type: 'error', code: 'revoked', message: 'access revoked' });
+      c.ws.close();
+    }
+  }
+}
+
+// Constant-time check that a request carries the camera's token.
+function requireCamera(req) {
+  const t = (req.headers['authorization'] || '').replace(/^Bearer\s+/i, '');
+  if (!t || t.length !== CAMERA_TOKEN.length) return false;
+  return crypto.timingSafeEqual(Buffer.from(t), Buffer.from(CAMERA_TOKEN));
+}
+
+// Tell the Portal a device just enrolled (so it can show "X enrolled — Keep/Remove").
+function notifyCameraEnrolled(viewer) {
+  if (camera) send(camera.ws, { type: 'viewer-enrolled', id: viewer.id, name: viewer.name });
+}
+
+wss.on('connection', (ws, req) => {
+  const peer = { ws, role: null, id: String(nextId++), ip: clientIp(req), viewer: null };
+  console.log(`[ws] connection opened from ${peer.ip}`);
 
   // Drop clients that don't authenticate promptly.
   const authTimer = setTimeout(() => {
@@ -165,16 +326,36 @@ wss.on('connection', (ws) => {
 
     switch (msg.type) {
       case 'register': {
-        const wantCamera = msg.role === 'camera';
-        const token = wantCamera ? CAMERA_TOKEN : VIEWER_TOKEN;
         if (msg.role !== 'camera' && msg.role !== 'viewer') {
           send(ws, { type: 'error', code: 'bad_role', message: 'role must be camera|viewer' });
           return;
         }
-        if (msg.token !== token) {
-          send(ws, { type: 'error', code: 'bad_token', message: 'invalid token' });
-          ws.close();
-          return;
+        const wantCamera = msg.role === 'camera';
+        if (wantCamera) {
+          if (msg.token !== CAMERA_TOKEN) {
+            send(ws, { type: 'error', code: 'bad_token', message: 'invalid camera token' });
+            ws.close();
+            return;
+          }
+        } else {
+          // Viewer: per-viewer access JWT preferred; legacy shared token is a
+          // fallback only while VIEWER_TOKEN is still configured.
+          let identity = null;
+          if (msg.accessToken) {
+            identity = auth.authenticateViewer(msg.accessToken);
+            console.log(`[ws] viewer register via accessToken (len ${msg.accessToken.length}): ${identity ? `OK (${identity.name})` : 'REJECTED'}`);
+          } else if (VIEWER_TOKEN && msg.token === VIEWER_TOKEN) {
+            identity = { id: 'legacy', name: 'shared-token' };
+            console.log('[ws] viewer register via legacy token: OK');
+          } else {
+            console.log(`[ws] viewer register with NO usable credentials (accessToken=${!!msg.accessToken}, token=${!!msg.token})`);
+          }
+          if (!identity) {
+            send(ws, { type: 'error', code: 'bad_token', message: 'invalid or expired credentials' });
+            ws.close();
+            return;
+          }
+          peer.viewer = identity;
         }
         clearTimeout(authTimer);
         peer.role = msg.role;
@@ -203,7 +384,10 @@ wss.on('connection', (ws) => {
           // Let the camera know a viewer wants in (so it can prepare).
           if (camera) send(camera.ws, { type: 'peer-joined', id: peer.id });
         }
-        console.log(`[+] ${peer.role} ${peer.id} registered (${clients.size} clients)`);
+        if (!wantCamera) {
+          auth.record('viewer_connect', { viewerId: peer.viewer.id, name: peer.viewer.name, ip: peer.ip });
+        }
+        console.log(`[+] ${peer.role} ${peer.id}${peer.viewer ? ` (${peer.viewer.name})` : ''} registered (${clients.size} clients)`);
         return;
       }
 
@@ -269,6 +453,9 @@ wss.on('connection', (ws) => {
     if (peer.role === 'viewer' && camera) {
       send(camera.ws, { type: 'peer-left', id: peer.id });
     }
+    if (peer.role === 'viewer' && peer.viewer) {
+      auth.record('viewer_disconnect', { viewerId: peer.viewer.id, name: peer.viewer.name });
+    }
     if (peer.role) console.log(`[-] ${peer.role} ${peer.id} left (${clients.size} clients)`);
   });
 });
@@ -292,4 +479,8 @@ httpServer.listen(PORT, () => {
   console.log(`  camera simulator http://localhost:${PORT}/camera-sim.html`);
   console.log(`  cameraId=${CAMERA_ID}  iceServers=${JSON.stringify(iceServers())}`);
   console.log(`  webPush=${push.enabled ? `enabled (${push.count} stored subs)` : 'disabled (set VAPID_* to enable)'}`);
+  console.log(`  auth=${authState.enabled
+    ? `per-viewer enabled (${authState.viewers} viewers)${VIEWER_TOKEN ? ' + legacy token' : ''}`
+    : VIEWER_TOKEN ? 'shared VIEWER_TOKEN only (set JWT_SECRET + ADMIN_PASSWORD for per-viewer)' : 'NONE — set JWT_SECRET+ADMIN_PASSWORD or VIEWER_TOKEN'}`);
+  if (authState.enabled) console.log(`  admin console:   http://localhost:${PORT}/admin.html`);
 });

@@ -50,6 +50,12 @@ data class Config(
             .replace(Regex("^http"), "ws")
             .removeSuffix("/")
 
+    /** Normalize ws(s) -> http(s) for REST calls (camera management endpoints). */
+    val httpBaseUrl: String
+        get() = serverUrl.trim()
+            .replace(Regex("^ws"), "http")
+            .removeSuffix("/")
+
     companion object {
         private const val PREFS = "portal_security"
 

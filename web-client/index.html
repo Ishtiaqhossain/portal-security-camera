@@ -24,11 +24,23 @@
         <label for="server">Signaling server</label>
         <input id="server" placeholder="ws://localhost:8080 (blank = this site)" />
       </div>
-      <div class="field">
-        <label for="token">Viewer token</label>
-        <input id="token" type="password" placeholder="VIEWER_TOKEN" />
+
+      <!-- Per-viewer auth: shown when this device isn't enrolled. -->
+      <div id="auth-message" class="hidden">
+        <p class="status">This device isn't enrolled yet. On the Portal, open
+          <b>Manage access → Add viewer</b> and scan the QR code with this device's
+          camera while on the same Wi-Fi.</p>
       </div>
-      <button id="connect-btn" class="primary">Connect</button>
+
+      <!-- Legacy shared-token field: shown only when the server allows it. -->
+      <div id="legacy-auth" class="hidden">
+        <div class="field">
+          <label for="token">Viewer token</label>
+          <input id="token" type="password" placeholder="VIEWER_TOKEN" />
+        </div>
+      </div>
+
+      <button id="connect-btn" class="primary hidden">Connect</button>
       <p class="status" id="connect-error"></p>
     </section>
 

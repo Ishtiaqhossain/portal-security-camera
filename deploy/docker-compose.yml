@@ -22,7 +22,11 @@ services:
     environment:
       PORT: "8080"
       CAMERA_TOKEN: ${CAMERA_TOKEN:?set CAMERA_TOKEN in .env}
-      VIEWER_TOKEN: ${VIEWER_TOKEN:?set VIEWER_TOKEN in .env}
+      # Per-viewer auth (recommended). Set both to enable the admin console.
+      JWT_SECRET: ${JWT_SECRET:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      # Legacy shared viewer token — leave blank when per-viewer auth is on.
+      VIEWER_TOKEN: ${VIEWER_TOKEN:-}
       CAMERA_ID: ${CAMERA_ID:-home}
       STUN_URL: ${STUN_URL:-stun:stun.l.google.com:19302}
       TURN_HOST: ${DOMAIN:?set DOMAIN in .env}

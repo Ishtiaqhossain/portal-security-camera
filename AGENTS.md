@@ -37,6 +37,24 @@ peer-to-peer**, with **two-way audio** and **motion alerts**.
 If you change the protocol or negotiation, update **server.js**, **app.js**,
 **camera-sim.js**, and **SignalingClient.kt/WebRtcEngine.kt** together.
 
+## Auth (`auth.js`)
+
+- Camera registers with `token: CAMERA_TOKEN`. Viewers register with
+  `accessToken: <JWT>` (per-viewer) — or legacy `token: VIEWER_TOKEN` if that env
+  is still set. Enable per-viewer auth by setting `JWT_SECRET` + `ADMIN_PASSWORD`.
+- Enrollment is **device-initiated**: the Portal calls camera-auth
+  `/camera/enroll/start` to mint a single-use ticket and renders it as a QR; the
+  viewer's phone POSTs it to public `/auth/enroll` (which enforces a
+  **same-network check** via the trusted-proxy XFF entry). REST:
+  `/auth/{admin,enroll,refresh,config}`, camera-auth
+  `/camera/{enroll/start,viewers,revoke,enable}`, admin-auth
+  `/admin/{viewers,revoke,enable,audit}`. Web: `/enroll.html#t=…` (scan target),
+  `/admin.html` (web console). Manage/revoke also lives in the Portal app
+  (Viewers screen). `CameraApi.kt` + `QrGen.kt` on Android.
+- Access tokens are short (15m) and sent over WS; refresh tokens (30d) live on
+  the viewer device. Revocation kicks live sessions + blocks reconnect. JWTs are
+  HS256 with alg pinned. Threat model: `SECURITY.md`.
+
 ## Portal platform constraints (from Meta's Portal docs)
 
 - `minSdk 28`, `targetSdk 29`. Portal runs old AOSP **without Google Mobile

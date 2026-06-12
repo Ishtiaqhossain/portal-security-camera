@@ -10,6 +10,7 @@ composeBom = "2024.10.01"
 webrtc = "1.3.8"
 okhttp = "4.12.0"
 coroutines = "1.8.1"
+zxing = "3.5.3"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -24,6 +25,7 @@ androidx-material3 = { group = "androidx.compose.material3", name = "material3" 
 webrtc = { group = "io.getstream", name = "stream-webrtc-android", version.ref = "webrtc" }
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
 coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
+zxing-core = { group = "com.google.zxing", name = "core", version.ref = "zxing" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

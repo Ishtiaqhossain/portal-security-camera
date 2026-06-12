@@ -16,3 +16,5 @@ portal-app/captures/
 # OS
 .DS_Store
 signaling-server/subscriptions.json
+signaling-server/viewers.json
+signaling-server/audit.json

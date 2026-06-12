@@ -28,6 +28,8 @@ const ui = {
   notifyBtn: $('notify-btn'),
   disconnectBtn: $('disconnect-btn'),
   toasts: $('toasts'),
+  authMessage: $('auth-message'),
+  legacyAuth: $('legacy-auth'),
 };
 
 const state = {
@@ -39,17 +41,77 @@ const state = {
   reconnectTimer: null,
   vapidPublicKey: null,
   swReg: null,
+  authEnabled: false,
+  accessToken: null,
 };
 
-// --- Config: query params > saved values > defaults -------------------------
+function httpBase() {
+  const explicit = ui.server.value.trim();
+  if (explicit) return explicit.replace(/^ws/, 'http');
+  return location.origin;
+}
 
-function loadConfig() {
-  const q = new URLSearchParams(location.search);
+// --- Init: detect auth mode and choose the right entry flow -----------------
+
+async function init() {
+  registerServiceWorker();
+  refreshNotifyButton();
   const saved = JSON.parse(localStorage.getItem('portal-viewer') || '{}');
-  ui.server.value = q.get('server') ?? saved.server ?? '';
-  ui.token.value = q.get('token') ?? saved.token ?? '';
-  // Auto-connect if a token came in via the URL.
-  if (q.get('token')) connect();
+  ui.server.value = new URLSearchParams(location.search).get('server') ?? saved.server ?? '';
+
+  let cfg = {};
+  try { cfg = await (await fetch(httpBase() + '/auth/config')).json(); } catch { /* offline */ }
+  state.authEnabled = !!cfg.authEnabled;
+
+  if (state.authEnabled) {
+    // Per-viewer mode: no token field. Auto-connect if this device was invited.
+    ui.legacyAuth.classList.add('hidden');
+    if (localStorage.getItem('portal-refresh')) {
+      ui.connectBtn.textContent = 'Watch';
+      ui.connectBtn.classList.remove('hidden');
+      connect();
+    } else {
+      ui.authMessage.classList.remove('hidden');
+      ui.connectBtn.classList.add('hidden');
+      setStatus('not enrolled on this device', 'error');
+    }
+  } else {
+    // Legacy shared-token mode.
+    ui.legacyAuth.classList.remove('hidden');
+    ui.connectBtn.textContent = 'Connect';
+    ui.connectBtn.classList.remove('hidden');
+    const q = new URLSearchParams(location.search);
+    ui.token.value = q.get('token') ?? saved.token ?? '';
+    if (q.get('token')) connect();
+  }
+}
+
+// Exchange the stored refresh token for a short-lived access token.
+async function getAccessToken() {
+  const refreshToken = localStorage.getItem('portal-refresh');
+  if (!refreshToken) return null;
+  try {
+    const res = await fetch(httpBase() + '/auth/refresh', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ refreshToken }),
+    });
+    if (!res.ok) return null;
+    return (await res.json()).accessToken;
+  } catch {
+    return null;
+  }
+}
+
+function showNeedInvite(reason) {
+  state.ws = null;
+  teardownCall();
+  ui.view.classList.add('hidden');
+  ui.connectCard.classList.remove('hidden');
+  ui.legacyAuth.classList.add('hidden');
+  ui.authMessage.classList.remove('hidden');
+  ui.connectBtn.classList.add('hidden');
+  setStatus(reason || 'access required', 'error');
 }
 
 function saveConfig() {
@@ -85,21 +147,34 @@ function showToast(title, time) {
 
 // --- Connection --------------------------------------------------------------
 
-function connect() {
-  if (!ui.token.value.trim()) {
-    ui.connectError.textContent = 'Enter a viewer token.';
-    return;
-  }
-  saveConfig();
+async function connect() {
   ui.connectError.textContent = '';
   setStatus('connecting…');
+
+  let registerMsg;
+  if (state.authEnabled) {
+    const accessToken = await getAccessToken();
+    if (!accessToken) {
+      showNeedInvite("Your access has ended or this device isn't invited.");
+      return;
+    }
+    state.accessToken = accessToken;
+    registerMsg = { type: 'register', role: 'viewer', accessToken };
+    console.log('got access token, opening socket to', wsUrl());
+    setStatus('authenticated, connecting…');
+  } else {
+    if (!ui.token.value.trim()) {
+      ui.connectError.textContent = 'Enter a viewer token.';
+      return;
+    }
+    saveConfig();
+    registerMsg = { type: 'register', role: 'viewer', token: ui.token.value.trim() };
+  }
 
   const ws = new WebSocket(wsUrl());
   state.ws = ws;
 
-  ws.onopen = () => {
-    ws.send(JSON.stringify({ type: 'register', role: 'viewer', token: ui.token.value.trim() }));
-  };
+  ws.onopen = () => { console.log('WS open → register'); ws.send(JSON.stringify(registerMsg)); };
 
   ws.onmessage = async (ev) => {
     const msg = JSON.parse(ev.data);
@@ -135,26 +210,36 @@ function connect() {
         break;
       case 'error':
         console.warn('server error', msg);
-        if (msg.code === 'bad_token') {
-          setStatus('auth failed', 'error');
-          ui.connectCard.classList.remove('hidden');
-          ui.view.classList.add('hidden');
-          ui.connectError.textContent = 'Invalid viewer token.';
+        if (msg.code === 'bad_token' || msg.code === 'revoked') {
+          if (state.authEnabled) {
+            if (msg.code === 'revoked') localStorage.removeItem('portal-refresh');
+            showNeedInvite(msg.code === 'revoked'
+              ? 'Your access was revoked by the owner.'
+              : 'Access expired — open a fresh invite link.');
+          } else {
+            setStatus('auth failed', 'error');
+            ui.connectCard.classList.remove('hidden');
+            ui.view.classList.add('hidden');
+            ui.connectError.textContent = 'Invalid viewer token.';
+          }
         }
         break;
     }
   };
 
-  ws.onclose = () => {
-    setStatus('disconnected', 'error');
+  ws.onclose = (ev) => {
     teardownCall();
-    // Auto-reconnect unless the user disconnected explicitly.
+    console.warn('WS closed', ev?.code, ev?.reason);
+    // Only show "disconnected" + reconnect for an UNEXPECTED drop. If an error
+    // handler (bad_token/revoked) or the user already cleared state.ws, leave
+    // the explanatory status in place instead of clobbering it.
     if (state.ws === ws) {
+      setStatus(`disconnected${ev?.code ? ` (code ${ev.code}${ev.reason ? `: ${ev.reason}` : ''})` : ''}`, 'error');
       state.reconnectTimer = setTimeout(connect, 3000);
     }
   };
 
-  ws.onerror = () => setStatus('connection error', 'error');
+  ws.onerror = () => { if (state.ws === ws) setStatus('connection error', 'error'); };
 }
 
 function disconnect() {
@@ -165,6 +250,7 @@ function disconnect() {
   teardownCall();
   ui.view.classList.add('hidden');
   ui.connectCard.classList.remove('hidden');
+  ui.connectBtn.classList.remove('hidden'); // allow reconnect
   setStatus('disconnected');
 }
 
@@ -332,6 +418,4 @@ ui.muteAudioBtn.onclick = toggleCameraAudio;
 ui.notifyBtn.onclick = enableNotifications;
 ui.fullscreenBtn.onclick = () => ui.remote.requestFullscreen?.();
 
-registerServiceWorker();
-refreshNotifyButton();
-loadConfig();
+init();

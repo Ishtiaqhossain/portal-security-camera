@@ -1,6 +1,8 @@
 package com.meta.portal.security
 
 import android.Manifest
+import android.app.Activity
+import android.app.KeyguardManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -8,6 +10,7 @@ import android.content.ServiceConnection
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -76,6 +79,11 @@ class MainActivity : ComponentActivity() {
 
     private var service by mutableStateOf<CameraAgentService?>(null)
 
+    /** True once the user has confirmed the device PIN this foreground session. */
+    private var unlocked by mutableStateOf(false)
+    /** Set while the system credential screen is up, so onStart/onStop don't fight it. */
+    private var authInProgress = false
+
     private val connection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
             service = (binder as? CameraAgentService.LocalBinder)?.service
@@ -87,21 +95,38 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.RequestMultiplePermissions()
     ) { /* user can re-Arm if denied */ }
 
+    private val credentialLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        authInProgress = false
+        if (result.resultCode == Activity.RESULT_OK) {
+            unlocked = true
+            requestPermissions()
+        }
+        // On cancel/failure we stay locked; the lock screen offers a retry.
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        requestPermissions()
+        // Always-on camera: keep the screen awake so the Portal's inactivity
+        // timeout / screensaver never backgrounds us and drops camera + stream.
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         setContent {
             PortalSecurityTheme {
                 Surface(modifier = Modifier.fillMaxSize(), color = Bg) {
-                    AppRoot(
-                        service = service,
-                        onArm = { cfg -> Config.save(this, cfg); CameraAgentService.start(this) },
-                        onDisarm = { CameraAgentService.stop(this) },
-                        onApply = { cfg ->
-                            Config.save(this, cfg)
-                            if (service?.state?.value?.running == true) CameraAgentService.restart(this)
-                        },
-                    )
+                    if (unlocked) {
+                        AppRoot(
+                            service = service,
+                            onArm = { cfg -> Config.save(this, cfg); CameraAgentService.start(this) },
+                            onDisarm = { CameraAgentService.stop(this) },
+                            onApply = { cfg ->
+                                Config.save(this, cfg)
+                                if (service?.state?.value?.running == true) CameraAgentService.restart(this)
+                            },
+                        )
+                    } else {
+                        LockScreen(onUnlock = { promptForCredential() })
+                    }
                 }
             }
         }
@@ -110,11 +135,42 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         bindService(Intent(this, CameraAgentService::class.java), connection, Context.BIND_AUTO_CREATE)
+        if (!unlocked && !authInProgress) promptForCredential()
     }
 
     override fun onStop() {
         super.onStop()
         try { unbindService(connection) } catch (_: Exception) {}
+        // Re-lock when the app actually leaves the foreground (not when the
+        // system PIN screen is what backgrounded us). Next onStart re-prompts.
+        if (!authInProgress) unlocked = false
+    }
+
+    /**
+     * Gate access behind the Portal's own PIN/pattern/password by launching the
+     * system "confirm device credential" screen. If no device lock is set there
+     * is nothing to confirm against, so we let the user through.
+     */
+    private fun promptForCredential() {
+        if (unlocked || authInProgress) return
+        val keyguard = getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
+        if (keyguard == null || !keyguard.isDeviceSecure) {
+            unlocked = true
+            requestPermissions()
+            return
+        }
+        @Suppress("DEPRECATION")
+        val intent = keyguard.createConfirmDeviceCredentialIntent(
+            "Portal Security",
+            "Enter your PIN to access the camera",
+        )
+        if (intent == null) {
+            unlocked = true
+            requestPermissions()
+        } else {
+            authInProgress = true
+            credentialLauncher.launch(intent)
+        }
     }
 
     private fun requestPermissions() {
@@ -126,7 +182,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private enum class Screen { HOME, SETTINGS }
+private enum class Screen { HOME, SETTINGS, MANAGE }
 
 @Composable
 private fun AppRoot(
@@ -145,6 +201,7 @@ private fun AppRoot(
             state = state,
             config = config,
             onOpenSettings = { screen = Screen.SETTINGS },
+            onOpenManage = { screen = Screen.MANAGE },
             onArm = { onArm(config) },
             onDisarm = onDisarm,
             onModeChange = { m -> val c = config.copy(mode = m); config = c; onApply(c) },
@@ -154,6 +211,39 @@ private fun AppRoot(
             onBack = { screen = Screen.HOME },
             onSave = { c -> config = c; onApply(c); screen = Screen.HOME },
         )
+        Screen.MANAGE -> ManageAccessScreen(
+            config = config,
+            onBack = { screen = Screen.HOME },
+        )
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Lock screen — gates the app behind the device PIN
+// ---------------------------------------------------------------------------
+
+@Composable
+private fun LockScreen(onUnlock: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(top = 64.dp, start = 28.dp, end = 28.dp, bottom = 24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        ShieldStatus(color = Primary, modifier = Modifier.size(120.dp))
+        Spacer(Modifier.height(24.dp))
+        Text("PORTAL SECURITY", color = TextColor, fontSize = 26.sp, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "Locked — confirm your device PIN to continue.",
+            color = TextDim, fontSize = 15.sp,
+        )
+        Spacer(Modifier.height(28.dp))
+        Button(
+            onClick = onUnlock,
+            modifier = Modifier.width(240.dp).height(56.dp),
+        ) { Text("Unlock", fontSize = 18.sp, fontWeight = FontWeight.Bold) }
     }
 }
 
@@ -166,6 +256,7 @@ private fun HomeScreen(
     state: CameraAgentService.AgentState,
     config: Config,
     onOpenSettings: () -> Unit,
+    onOpenManage: () -> Unit,
     onArm: () -> Unit,
     onDisarm: () -> Unit,
     onModeChange: (CameraMode) -> Unit,
@@ -198,7 +289,10 @@ private fun HomeScreen(
             .padding(top = 60.dp, start = 28.dp, end = 28.dp, bottom = 24.dp),
     ) {
         AppHeader(title = "PORTAL SECURITY") {
-            OutlinedButton(onClick = onOpenSettings) { Text("Settings") }
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedButton(onClick = onOpenManage) { Text("Viewers") }
+                OutlinedButton(onClick = onOpenSettings) { Text("Settings") }
+            }
         }
         Spacer(Modifier.height(20.dp))
 

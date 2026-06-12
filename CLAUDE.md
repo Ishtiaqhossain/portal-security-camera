@@ -14,8 +14,8 @@ server brokers the handshake; a TURN server relays media across NATs.
 
 | Path | What |
 |------|------|
-| `signaling-server/` | Node.js (ESM) WebSocket broker. Relays SDP/ICE + motion; mints TURN creds; serves the web client. |
-| `web-client/` | Browser viewer (`index.html`/`app.js`) + webcam camera simulator (`camera-sim.*`), which is the reference impl for the app. |
+| `signaling-server/` | Node.js (ESM) WebSocket broker. Relays SDP/ICE + motion; mints TURN creds; Web Push; per-viewer auth (`auth.js`); serves the web client. |
+| `web-client/` | Browser viewer (`index.html`/`app.js`), admin console (`admin.html`/`admin.js`), invite redemption (`redeem.*`), and webcam camera simulator (`camera-sim.*`, the reference impl for the app). |
 | `portal-app/` | Android (Kotlin/Compose) camera agent that runs on the Portal. |
 | `deploy/` | docker-compose stack (Caddy auto-HTTPS + signaling + coturn) for remote access. |
 
@@ -48,10 +48,14 @@ docker compose up -d --build
   (no Firebase/FCM — alerts ride the WebSocket). Dark theme mandatory, top 64dp
   reserved for the system overlay, landscape-first, touch targets ≥ 52dp, icon
   512×512 in `mipmap-xxxhdpi/`.
-- **Security:** separate `CAMERA_TOKEN`/`VIEWER_TOKEN`; media is DTLS-SRTP
-  encrypted; the app shows a visible LIVE badge + ongoing notification (Portal
-  household-disclosure requirement). Tokens/secrets live in gitignored `.env`
-  files — never commit them.
+- **Security:** `CAMERA_TOKEN` for the device; **per-viewer auth** for browsers
+  via **device-initiated QR enrollment** (owner shows a single-use QR on the
+  Portal → viewer scans on the same Wi-Fi → device-bound revocable token).
+  Manage from the Portal's Viewers screen or `/admin.html`. Legacy shared
+  `VIEWER_TOKEN` is optional/local-only.
+  Media is DTLS-SRTP encrypted; the app shows a LIVE badge + notification.
+  Secrets live in gitignored `.env` — never commit them. Full model in
+  `SECURITY.md`.
 
 ## Environment gotchas (this machine)
 
@@ -75,7 +79,7 @@ docker compose up -d --build
 - ✅ Android camera agent — builds clean (APK produced); not yet run on hardware.
 - ✅ Remote backend — built; compose config + image build + TURN issuance verified.
 - ✅ Web Push motion alerts (VAPID) — server + service worker; 6/6 push tests pass.
-  Delivers alerts to viewers with no tab open. Needs a real browser for the final
-  subscribe→deliver check.
+- ✅ Per-viewer auth — admin console, invite links, short-lived JWTs, instant
+  revocation, audit log; 18/18 auth tests pass. See `SECURITY.md`.
 - ⏳ Deploy + verify on a real Portal device (needs the device + a session restart
   for hzdb MCP tools).

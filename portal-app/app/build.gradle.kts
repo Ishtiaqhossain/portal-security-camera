@@ -52,4 +52,5 @@ dependencies {
     implementation(libs.webrtc)
     implementation(libs.okhttp)
     implementation(libs.coroutines.android)
+    implementation(libs.zxing.core)
 }

@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#1a1a1a" />
+  <title>Portal Security — Admin</title>
+  <link rel="stylesheet" href="styles.css" />
+  <style>
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid #333; font-size: 14px; }
+    th { color: var(--text-dim); font-weight: 600; }
+    .row-actions button { min-height: 36px; padding: 0 12px; font-size: 14px; }
+    .pill { padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+    .pill.active { background: rgba(48,164,108,.18); color: var(--ok); }
+    .pill.revoked { background: rgba(229,72,77,.18); color: var(--danger); }
+    .invite-link { word-break: break-all; background: var(--surface-2); padding: 12px; border-radius: 8px; font-size: 13px; }
+    .panel { background: var(--surface); border-radius: var(--radius); padding: 20px; margin-bottom: 20px; }
+    .panel h2 { margin-top: 0; }
+    .audit { font-size: 13px; color: var(--text-dim); max-height: 240px; overflow:auto; }
+    .audit div { padding: 4px 0; border-bottom: 1px solid #2a2a2a; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Portal Security — Admin</h1>
+    <span class="spacer"></span>
+    <button id="logout" class="hidden">Log out</button>
+  </header>
+
+  <main>
+    <!-- Login -->
+    <section id="login-card" class="card">
+      <h2>Owner sign-in</h2>
+      <div class="field">
+        <label for="password">Admin password</label>
+        <input id="password" type="password" placeholder="ADMIN_PASSWORD" />
+      </div>
+      <button id="login-btn" class="primary">Sign in</button>
+      <p class="status error" id="login-error"></p>
+    </section>
+
+    <!-- Dashboard -->
+    <section id="dashboard" class="hidden">
+      <div class="panel">
+        <h2>Invite a viewer</h2>
+        <div class="field">
+          <label for="invite-name">Name (e.g. "Mom's iPhone")</label>
+          <input id="invite-name" placeholder="Who is this for?" />
+        </div>
+        <button id="create-invite" class="primary">Create invite link</button>
+        <div id="invite-result" class="hidden" style="margin-top:14px;">
+          <p class="status connected">Share this single-use link (valid 24h):</p>
+          <div class="invite-link" id="invite-link"></div>
+          <button id="copy-invite" style="margin-top:10px;">Copy link</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Viewers</h2>
+        <table>
+          <thead><tr><th>Name</th><th>Status</th><th>Last seen</th><th></th></tr></thead>
+          <tbody id="viewers-body"></tbody>
+        </table>
+        <p class="status" id="viewers-empty">No viewers yet — create an invite above.</p>
+      </div>
+
+      <div class="panel">
+        <h2>Activity log</h2>
+        <div class="audit" id="audit"></div>
+      </div>
+    </section>
+  </main>
+
+  <script src="admin.js"></script>
+</body>
+</html>

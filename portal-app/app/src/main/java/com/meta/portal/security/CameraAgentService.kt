@@ -9,6 +9,7 @@ import android.content.Intent
 import android.os.Binder
 import android.os.Build
 import android.os.IBinder
+import android.os.PowerManager
 import android.util.Log
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -41,6 +42,7 @@ class CameraAgentService : Service(), SignalingClient.Listener, WebRtcEngine.Lis
 
     private var engine: WebRtcEngine? = null
     private var signaling: SignalingClient? = null
+    private var wakeLock: PowerManager.WakeLock? = null
 
     inner class LocalBinder : Binder() {
         val service get() = this@CameraAgentService
@@ -70,6 +72,7 @@ class CameraAgentService : Service(), SignalingClient.Listener, WebRtcEngine.Lis
             return
         }
         startForeground(NOTIF_ID, buildNotification("Starting…"))
+        acquireWakeLock()
 
         engine = WebRtcEngine(
             context = this,
@@ -99,6 +102,7 @@ class CameraAgentService : Service(), SignalingClient.Listener, WebRtcEngine.Lis
     private fun stopAgent() {
         signaling?.close(); signaling = null
         engine?.stop(); engine = null
+        releaseWakeLock()
         _state.value = AgentState(statusText = "Disarmed")
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
@@ -107,7 +111,27 @@ class CameraAgentService : Service(), SignalingClient.Listener, WebRtcEngine.Lis
     override fun onDestroy() {
         signaling?.close()
         engine?.stop()
+        releaseWakeLock()
         super.onDestroy()
+    }
+
+    /**
+     * Keep the CPU running while armed so capture + WebRTC keep streaming even if
+     * the screen turns off — the foreground-service grant alone doesn't prevent
+     * the CPU from sleeping. Released on disarm/destroy.
+     */
+    private fun acquireWakeLock() {
+        if (wakeLock?.isHeld == true) return
+        val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+        wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "$TAG:stream").apply {
+            setReferenceCounted(false)
+            acquire()
+        }
+    }
+
+    private fun releaseWakeLock() {
+        wakeLock?.let { if (it.isHeld) it.release() }
+        wakeLock = null
     }
 
     // --- SignalingClient.Listener -------------------------------------------
