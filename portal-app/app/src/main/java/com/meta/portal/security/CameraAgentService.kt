@@ -75,7 +75,6 @@ class CameraAgentService : Service(), SignalingClient.Listener, WebRtcEngine.Lis
             context = this,
             listener = this,
             onDemand = config.onDemand,
-            facing = config.cameraFacing,
             captureW = config.quality.width,
             captureH = config.quality.height,
             captureFps = config.quality.fps,

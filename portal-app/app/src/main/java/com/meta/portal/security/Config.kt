@@ -34,7 +34,6 @@ data class Config(
     val cameraToken: String = "",
     val mode: CameraMode = CameraMode.DROP_IN,
     val motionEnabled: Boolean = false,
-    val cameraFacing: String = "front", // "front" | "back"
     val quality: VideoQuality = VideoQuality.MEDIUM,
     val startOnBoot: Boolean = false,
 ) {
@@ -66,7 +65,6 @@ data class Config(
                     else -> CameraMode.DROP_IN
                 },
                 motionEnabled = p.getBoolean("motionEnabled", false),
-                cameraFacing = p.getString("cameraFacing", "front") ?: "front",
                 quality = VideoQuality.from(p.getString("quality", "720p")),
                 startOnBoot = p.getBoolean("startOnBoot", false),
             )
@@ -78,7 +76,6 @@ data class Config(
                 .putString("cameraToken", config.cameraToken)
                 .putString("mode", config.mode.storage)
                 .putBoolean("motionEnabled", config.motionEnabled)
-                .putString("cameraFacing", config.cameraFacing)
                 .putString("quality", config.quality.label)
                 .putBoolean("startOnBoot", config.startOnBoot)
                 .apply()

@@ -35,7 +35,6 @@ class WebRtcEngine(
     private val listener: Listener,
     // On-demand (Drop In): open the camera only while a viewer is connected.
     private val onDemand: Boolean = true,
-    private val facing: String = "front",      // "front" | "back"
     private val captureW: Int = 1280,
     private val captureH: Int = 720,
     private val captureFps: Int = 30,
@@ -105,13 +104,8 @@ class WebRtcEngine(
         if (capturing) return
         val enumerator = Camera2Enumerator(context)
         val names = enumerator.deviceNames
-        val preferred = if (facing == "back") {
-            names.firstOrNull { enumerator.isBackFacing(it) }
-        } else {
-            names.firstOrNull { enumerator.isFrontFacing(it) }
-        }
-        val deviceName = preferred
-            ?: names.firstOrNull { enumerator.isFrontFacing(it) }
+        // Portal has a single (front-facing) camera; prefer it, else take whatever exists.
+        val deviceName = names.firstOrNull { enumerator.isFrontFacing(it) }
             ?: names.firstOrNull()
             ?: run { Log.e(TAG, "no camera found"); return }
 

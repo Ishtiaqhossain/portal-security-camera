@@ -293,7 +293,6 @@ private fun SettingsScreen(
     var token by remember { mutableStateOf(initial.cameraToken) }
     var mode by remember { mutableStateOf(initial.mode) }
     var motion by remember { mutableStateOf(initial.motionEnabled) }
-    var facing by remember { mutableStateOf(initial.cameraFacing) }
     var quality by remember { mutableStateOf(initial.quality) }
     var startOnBoot by remember { mutableStateOf(initial.startOnBoot) }
 
@@ -337,12 +336,6 @@ private fun SettingsScreen(
         }
 
         SectionCard("Camera") {
-            SettingRow("Facing") {
-                SegmentedControl(
-                    labels = listOf("Front", "Back"),
-                    selected = if (facing == "back") 1 else 0,
-                ) { idx -> facing = if (idx == 1) "back" else "front" }
-            }
             SettingRow("Quality") {
                 SegmentedControl(
                     labels = VideoQuality.entries.map { it.label },
@@ -378,7 +371,7 @@ private fun SettingsScreen(
                     initial.copy(
                         serverUrl = serverUrl, cameraToken = token, mode = mode,
                         motionEnabled = motion && mode == CameraMode.ACTIVE,
-                        cameraFacing = facing, quality = quality, startOnBoot = startOnBoot,
+                        quality = quality, startOnBoot = startOnBoot,
                     )
                 )
             },
