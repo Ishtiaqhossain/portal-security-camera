@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Portal Security — Camera Simulator</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header>
+    <h1>Portal Security — Camera Simulator</h1>
+    <span class="spacer"></span>
+    <span id="status" class="status">disconnected</span>
+  </header>
+
+  <main>
+    <section id="connect-card" class="card">
+      <h2>Start camera</h2>
+      <p class="status">
+        Stands in for the Portal device using this computer's webcam. Mirrors the
+        real camera agent: same signaling, same WebRTC roles, same motion detection.
+      </p>
+      <div class="field">
+        <label for="server">Signaling server</label>
+        <input id="server" placeholder="ws://localhost:8080 (blank = this site)" />
+      </div>
+      <div class="field">
+        <label for="token">Camera token</label>
+        <input id="token" type="password" placeholder="CAMERA_TOKEN" />
+      </div>
+      <button id="start-btn" class="primary">Start camera</button>
+      <p class="status" id="connect-error"></p>
+    </section>
+
+    <section id="view" class="hidden">
+      <div class="video-wrap">
+        <video id="local" autoplay playsinline muted></video>
+        <span class="badge"><span id="live-dot" class="dot live"></span><span>LIVE · <span id="viewer-count">0</span> viewer(s)</span></span>
+      </div>
+      <div class="controls">
+        <button id="motion-btn">⚠ Send test motion alert</button>
+        <button id="auto-motion-btn" aria-pressed="true">👁 Auto motion: on</button>
+        <span class="spacer"></span>
+        <button id="stop-btn" class="danger">Stop</button>
+      </div>
+      <p class="status" id="motion-status">motion detector idle</p>
+    </section>
+  </main>
+
+  <canvas id="motion-canvas" class="hidden" width="64" height="48"></canvas>
+  <script type="module" src="camera-sim.js"></script>
+</body>
+</html>

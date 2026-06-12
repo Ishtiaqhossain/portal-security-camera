@@ -1,0 +1,9 @@
+<resources>
+    <!-- Dark theme is mandatory on Portal: the system overlay is white with no
+         background, so a light app would make it invisible. -->
+    <style name="Theme.PortalSecurity" parent="android:Theme.Material.NoActionBar">
+        <item name="android:statusBarColor">@color/bg</item>
+        <item name="android:navigationBarColor">@color/bg</item>
+        <item name="android:windowBackground">@color/bg</item>
+    </style>
+</resources>

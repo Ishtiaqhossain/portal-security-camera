@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#1a1a1a" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="apple-touch-icon" href="icon-192.png" />
+  <title>Portal Security — Viewer</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header>
+    <h1>Portal Security</h1>
+    <span class="spacer"></span>
+    <span id="status" class="status">disconnected</span>
+  </header>
+
+  <main>
+    <!-- Connection form (shown until connected). -->
+    <section id="connect-card" class="card">
+      <h2>Connect to your camera</h2>
+      <div class="field">
+        <label for="server">Signaling server</label>
+        <input id="server" placeholder="ws://localhost:8080 (blank = this site)" />
+      </div>
+      <div class="field">
+        <label for="token">Viewer token</label>
+        <input id="token" type="password" placeholder="VIEWER_TOKEN" />
+      </div>
+      <button id="connect-btn" class="primary">Connect</button>
+      <p class="status" id="connect-error"></p>
+    </section>
+
+    <!-- Live view (shown after connecting). -->
+    <section id="view" class="hidden">
+      <div class="video-wrap">
+        <video id="remote" autoplay playsinline></video>
+        <span class="badge"><span id="live-dot" class="dot"></span><span id="live-label">waiting…</span></span>
+      </div>
+      <div class="controls">
+        <button id="mic-btn" aria-pressed="false" disabled>🎙 Talk</button>
+        <button id="mute-audio-btn" aria-pressed="false">🔇 Mute camera</button>
+        <button id="fullscreen-btn">⛶ Fullscreen</button>
+        <button id="notify-btn">🔔 Enable alerts</button>
+        <span class="spacer"></span>
+        <button id="disconnect-btn" class="danger">Disconnect</button>
+      </div>
+    </section>
+  </main>
+
+  <div id="toasts"></div>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

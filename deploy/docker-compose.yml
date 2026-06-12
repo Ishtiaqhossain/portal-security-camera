@@ -1,0 +1,79 @@
+# Remote-access backend for the Portal security camera.
+#
+#   caddy      — auto-HTTPS reverse proxy. Terminates TLS for ${DOMAIN} and
+#                proxies HTTP + WebSocket to the signaling server.
+#   signaling  — the Node WebSocket broker (also serves the web viewer).
+#   coturn     — TURN/STUN relay for NAT traversal (host networking).
+#
+# Variables are read from deploy/.env (copy from .env.example). Run from this
+# directory:  docker compose up -d --build
+#
+# Open these ports on the host firewall:
+#   80/tcp, 443/tcp        Caddy (HTTP challenge + HTTPS/WSS)
+#   3478/tcp, 3478/udp     coturn signaling
+#   49160-49200/udp        coturn media relay range
+#   5349/tcp               only if TURN_TLS=true
+
+services:
+  signaling:
+    build:
+      context: ..
+      dockerfile: signaling-server/Dockerfile
+    environment:
+      PORT: "8080"
+      CAMERA_TOKEN: ${CAMERA_TOKEN:?set CAMERA_TOKEN in .env}
+      VIEWER_TOKEN: ${VIEWER_TOKEN:?set VIEWER_TOKEN in .env}
+      CAMERA_ID: ${CAMERA_ID:-home}
+      STUN_URL: ${STUN_URL:-stun:stun.l.google.com:19302}
+      TURN_HOST: ${DOMAIN:?set DOMAIN in .env}
+      TURN_SECRET: ${TURN_SECRET:?set TURN_SECRET in .env}
+      TURN_TTL: ${TURN_TTL:-86400}
+      TURN_TLS: ${TURN_TLS:-false}
+      # Web Push (VAPID) — leave blank to disable push (live alerts still work).
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:admin@example.com}
+      PUSH_COOLDOWN_MS: ${PUSH_COOLDOWN_MS:-60000}
+      DATA_DIR: /data
+    volumes:
+      - push_data:/data
+    expose:
+      - "8080"
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - signaling
+    restart: unless-stopped
+
+  coturn:
+    image: coturn/coturn:4.6-alpine
+    # Host networking so the relay port range is reachable without per-port maps.
+    network_mode: host
+    command:
+      - -n
+      - --use-auth-secret
+      - --static-auth-secret=${TURN_SECRET:?set TURN_SECRET in .env}
+      - --realm=${DOMAIN:?set DOMAIN in .env}
+      - --listening-port=3478
+      - --min-port=49160
+      - --max-port=49200
+      - --no-cli
+      - --no-tcp-relay
+      - --log-file=stdout
+    restart: unless-stopped
+
+volumes:
+  caddy_data:
+  caddy_config:
+  push_data:

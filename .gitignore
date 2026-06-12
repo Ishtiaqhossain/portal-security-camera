@@ -1,0 +1,18 @@
+# Node
+node_modules/
+signaling-server/.env
+deploy/.env
+
+# Android / Gradle
+portal-app/.gradle/
+portal-app/build/
+portal-app/app/build/
+portal-app/.kotlin/
+portal-app/local.properties
+portal-app/.idea/
+portal-app/captures/
+*.iml
+
+# OS
+.DS_Store
+signaling-server/subscriptions.json

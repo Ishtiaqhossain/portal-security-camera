@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Cleartext (ws://, http://) is permitted ONLY for local development/test hosts:
+  the Android emulator's host-loopback alias (10.0.2.2) and localhost. This lets
+  the app reach a signaling server running on the developer's machine over ws://
+  without TLS. Production deployments use wss:// and are unaffected — all other
+  domains keep Android's secure default (cleartext denied).
+-->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">10.0.2.2</domain>
+        <domain includeSubdomains="true">localhost</domain>
+        <domain includeSubdomains="true">127.0.0.1</domain>
+    </domain-config>
+</network-security-config>

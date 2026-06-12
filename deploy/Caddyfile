@@ -1,0 +1,8 @@
+# Caddy auto-provisions a Let's Encrypt TLS cert for {$DOMAIN} (ports 80/443 must
+# be reachable and DNS must point here). It proxies everything — including the
+# WebSocket upgrade — to the signaling server, which serves both the web viewer
+# and the /ws signaling endpoint.
+{$DOMAIN} {
+	encode zstd gzip
+	reverse_proxy signaling:8080
+}
