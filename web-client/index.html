@@ -20,6 +20,7 @@
     <!-- Connection form (shown until connected). -->
     <section id="connect-card" class="card">
       <h2>Connect to your camera</h2>
+      <p class="subtitle">Live view, two-way audio, and motion alerts from your Portal.</p>
       <div class="field">
         <label for="server">Signaling server</label>
         <input id="server" placeholder="ws://localhost:8080 (blank = this site)" />
@@ -48,6 +49,10 @@
     <section id="view" class="hidden">
       <div class="video-wrap">
         <video id="remote" autoplay playsinline></video>
+        <div id="video-overlay" class="video-overlay">
+          <div class="spinner"></div>
+          <p id="overlay-text">Connecting to camera…</p>
+        </div>
         <span class="badge"><span id="live-dot" class="dot"></span><span id="live-label">waiting…</span></span>
       </div>
       <div class="controls">

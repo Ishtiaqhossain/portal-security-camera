@@ -30,6 +30,8 @@ const ui = {
   remote: $('remote'),
   liveDot: $('live-dot'),
   liveLabel: $('live-label'),
+  videoOverlay: $('video-overlay'),
+  overlayText: $('overlay-text'),
   micBtn: $('mic-btn'),
   muteAudioBtn: $('mute-audio-btn'),
   fullscreenBtn: $('fullscreen-btn'),
@@ -155,6 +157,11 @@ function setStatus(text, cls = '') {
 function setLive(isLive) {
   ui.liveDot.className = `dot ${isLive ? 'live' : ''}`;
   ui.liveLabel.textContent = isLive ? 'LIVE' : 'waiting…';
+  if (ui.videoOverlay) ui.videoOverlay.classList.toggle('hidden', isLive);
+}
+
+function setOverlay(text) {
+  if (ui.overlayText) ui.overlayText.textContent = text;
 }
 
 function showToast(title, time) {
@@ -206,13 +213,14 @@ async function connect() {
         ui.connectCard.classList.add('hidden');
         ui.view.classList.remove('hidden');
         if (msg.cameraOnline) startCall();
-        else setLive(false);
+        else { setOverlay('Waiting for camera…'); setLive(false); }
         break;
       case 'camera-online':
         startCall();
         break;
       case 'camera-offline':
         teardownCall();
+        setOverlay('Camera is offline');
         setLive(false);
         setStatus('camera offline', 'error');
         break;
@@ -276,6 +284,7 @@ function disconnect() {
 
 async function startCall() {
   teardownCall();
+  setOverlay('Connecting to camera…');
   setLive(false);
   const pc = new RTCPeerConnection({ iceServers: state.iceServers });
   state.pc = pc;

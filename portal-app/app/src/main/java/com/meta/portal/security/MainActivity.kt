@@ -74,6 +74,33 @@ import com.meta.portal.security.ui.theme.TextDim
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.util.lerp
+import com.meta.portal.security.ui.theme.Motion as MotionTokens
+import com.meta.portal.security.ui.theme.OnPrimary
+import com.meta.portal.security.ui.theme.OutlineSoft
+import com.meta.portal.security.ui.theme.Radius
+import com.meta.portal.security.ui.theme.Space
+import com.meta.portal.security.ui.theme.TextFaint
+import com.meta.portal.security.ui.theme.Touch
+import com.meta.portal.security.ui.theme.Type
+import com.meta.portal.security.ui.theme.avatarColorFor
+import com.meta.portal.security.ui.theme.glow
+import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
 
@@ -227,23 +254,24 @@ private fun LockScreen(onUnlock: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(top = 64.dp, start = 28.dp, end = 28.dp, bottom = 24.dp),
+            .padding(top = Space.screenTop, start = Space.screenH, end = Space.screenH, bottom = Space.screenBottom),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        ShieldStatus(color = Primary, modifier = Modifier.size(120.dp))
-        Spacer(Modifier.height(24.dp))
-        Text("PORTAL SECURITY", color = TextColor, fontSize = 26.sp, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(8.dp))
+        StatusHalo(color = Primary, breathing = true, intense = false, modifier = Modifier.size(180.dp))
+        Spacer(Modifier.height(Space.xl))
+        Text("Portal Security", color = TextColor, style = Type.display)
+        Spacer(Modifier.height(Space.sm))
         Text(
             "Locked — confirm your device PIN to continue.",
-            color = TextDim, fontSize = 15.sp,
+            color = TextDim, style = Type.body,
         )
-        Spacer(Modifier.height(28.dp))
+        Spacer(Modifier.height(Space.xl))
         Button(
             onClick = onUnlock,
-            modifier = Modifier.width(240.dp).height(56.dp),
-        ) { Text("Unlock", fontSize = 18.sp, fontWeight = FontWeight.Bold) }
+            shape = Radius.button,
+            modifier = Modifier.width(240.dp).height(Touch.action),
+        ) { Text("Unlock", style = Type.titleSmall) }
     }
 }
 
@@ -262,12 +290,16 @@ private fun HomeScreen(
     onModeChange: (CameraMode) -> Unit,
 ) {
     val live = state.capturing && state.viewerCount > 0
-    val statusColor = when {
+    val targetColor = when {
         !state.running -> TextDim
         !state.online -> Amber
         live -> Danger
         else -> Ok
     }
+    // Cross-fade the status color so transitions (Disarmed→Live) feel authored.
+    val statusColor by animateColorAsState(
+        targetColor, tween(MotionTokens.emphasized), label = "statusColor",
+    )
     val statusTitle = when {
         !state.running -> "Disarmed"
         !state.online -> "Connecting"
@@ -276,100 +308,376 @@ private fun HomeScreen(
     }
     val mode = if (state.running) state.mode else config.mode
     val statusSubtitle = when {
-        !state.running -> "Tap Arm to start protecting"
+        !state.running -> "Tap Arm to start protecting your space"
         !state.online -> "Reaching the server…"
-        live -> "${state.viewerCount} viewer${if (state.viewerCount == 1) "" else "s"} watching now"
-        mode == CameraMode.DROP_IN -> "Drop In · camera wakes when a viewer connects"
-        else -> "Active · streaming in the background"
+        live -> "Someone is watching right now"
+        mode == CameraMode.DROP_IN -> "Camera wakes only when a viewer connects"
+        else -> "Streaming quietly in the background"
+    }
+
+    // A gently-ticking clock so relative times ("2m ago") and uptime stay fresh
+    // without a heavy timer. Updated on the same cadence everywhere on screen.
+    var now by remember { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) { delay(15_000); now = System.currentTimeMillis() }
+    }
+
+    // Accumulate motion events observed this session into a short activity log.
+    // Real data (each is a motion the service reported) — a clean seam to swap
+    // in server-side history later.
+    val motionLog = remember { mutableStateListOf<Long>() }
+    LaunchedEffect(state.lastMotionMs) {
+        val ts = state.lastMotionMs
+        if (ts > 0 && (motionLog.isEmpty() || motionLog.first() != ts)) {
+            motionLog.add(0, ts)
+            while (motionLog.size > 3) motionLog.removeAt(motionLog.lastIndex)
+        }
     }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(top = 60.dp, start = 28.dp, end = 28.dp, bottom = 24.dp),
+            .padding(top = Space.screenTop, start = Space.screenH, end = Space.screenH, bottom = Space.screenBottom),
     ) {
-        AppHeader(title = "PORTAL SECURITY") {
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        AppHeader(title = "Portal Security") {
+            Row(horizontalArrangement = Arrangement.spacedBy(Space.md)) {
                 OutlinedButton(onClick = onOpenManage) { Text("Viewers") }
                 OutlinedButton(onClick = onOpenSettings) { Text("Settings") }
             }
         }
-        Spacer(Modifier.height(20.dp))
+        Spacer(Modifier.height(Space.lg))
 
-        Row(modifier = Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(28.dp)) {
-            // Status hero
+        Row(
+            modifier = Modifier.fillMaxSize(),
+            horizontalArrangement = Arrangement.spacedBy(Space.xxl, Alignment.CenterHorizontally),
+        ) {
+            // ---- Status hero -------------------------------------------------
             Column(
-                modifier = Modifier.weight(1f).fillMaxSize(),
+                modifier = Modifier
+                    .width(360.dp)
+                    .fillMaxHeight()
+                    .drawBehind {
+                        // Ambient status glow turns the empty stage into a
+                        // deliberate, living surface instead of dead black.
+                        drawCircle(
+                            brush = Brush.radialGradient(
+                                colors = listOf(statusColor.copy(alpha = 0.09f), Color.Transparent),
+                                center = center,
+                                radius = size.minDimension * 0.75f,
+                            ),
+                            radius = size.minDimension * 0.75f,
+                            center = center,
+                        )
+                    },
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
             ) {
-                ShieldStatus(color = statusColor, modifier = Modifier.size(132.dp))
-                Spacer(Modifier.height(20.dp))
-                Text(statusTitle, color = statusColor, fontSize = 30.sp, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(6.dp))
-                Text(statusSubtitle, color = TextDim, fontSize = 15.sp)
-                if (state.running && state.armedSinceMs > 0) {
-                    Spacer(Modifier.height(2.dp))
-                    val t = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(state.armedSinceMs))
-                    Text("Armed since $t", color = TextDim, fontSize = 13.sp)
+                StatusHalo(
+                    color = statusColor,
+                    breathing = state.running && state.online,
+                    intense = live,
+                    modifier = Modifier.size(224.dp),
+                )
+                Spacer(Modifier.height(Space.lg))
+                Text(statusTitle, color = statusColor, style = Type.heroStatus)
+                Spacer(Modifier.height(Space.sm))
+                Text(
+                    statusSubtitle, color = TextDim, style = Type.body,
+                    textAlign = TextAlign.Center,
+                )
+                Spacer(Modifier.height(Space.lg))
+                ConnectionStatus(online = state.online, running = state.running)
+                if (state.running) {
+                    Spacer(Modifier.height(Space.lg))
+                    PresenceRow(viewerCount = state.viewerCount)
+                    if (state.armedSinceMs > 0) {
+                        Spacer(Modifier.height(Space.md))
+                        Text(
+                            "Armed " + uptime(state.armedSinceMs, now),
+                            color = TextFaint, style = Type.caption,
+                        )
+                    }
                 }
             }
 
-            // Controls
+            // ---- Controls ----------------------------------------------------
             Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
+                modifier = Modifier.width(470.dp).fillMaxHeight(),
+                verticalArrangement = Arrangement.spacedBy(Space.md),
             ) {
-                Column(
-                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
-                        .background(SurfaceColor).padding(18.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Text("MODE", color = TextDim, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-                    SegmentedControl(
-                        labels = listOf("Drop In", "Active"),
-                        selected = if (mode == CameraMode.ACTIVE) 1 else 0,
-                    ) { idx -> onModeChange(if (idx == 1) CameraMode.ACTIVE else CameraMode.DROP_IN) }
-                    Text(
-                        if (mode == CameraMode.DROP_IN)
-                            "Camera stays off until someone views — best for privacy and power."
-                        else
-                            "Camera streams continuously — enables motion alerts while you're away.",
-                        color = TextDim, fontSize = 13.sp,
-                    )
-                }
+                ModeCard(mode = mode, quality = config.quality, motionEnabled = config.motionEnabled, onModeChange = onModeChange)
+                ActivityCard(events = motionLog, now = now)
+                ArmButton(
+                    running = state.running,
+                    canArm = config.isValid,
+                    onArm = onArm,
+                    onDisarm = onDisarm,
+                )
+            }
+        }
+    }
+}
 
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    StatChip("Connection", if (state.online) "Online" else if (state.running) "Connecting" else "Offline",
-                        if (state.online) Ok else TextDim)
-                    StatChip("Viewers", state.viewerCount.toString(), if (live) Danger else TextColor)
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    val motion = if (state.lastMotionMs > 0)
-                        SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(state.lastMotionMs)) else "—"
-                    StatChip("Last motion", motion, if (state.lastMotionMs > 0) Amber else TextColor)
-                    StatChip("Quality", config.quality.label, TextColor)
-                }
+// ---------------------------------------------------------------------------
+// Home — status hero
+// ---------------------------------------------------------------------------
 
-                if (!state.running) {
-                    Button(
-                        onClick = onArm,
-                        enabled = config.isValid,
-                        modifier = Modifier.fillMaxWidth().height(56.dp),
-                    ) { Text("Arm", fontSize = 18.sp, fontWeight = FontWeight.Bold) }
-                    if (!config.isValid) {
-                        Text("Set the signaling server and camera token in Settings first.",
-                            color = Amber, fontSize = 13.sp)
+/**
+ * The single live heartbeat of the app: the shield wrapped in a halo that
+ * pings outward when the camera is LIVE, breathes calmly when armed, and sits
+ * perfectly still when disarmed. Honest state, expressed as motion.
+ */
+@Composable
+private fun StatusHalo(color: Color, breathing: Boolean, intense: Boolean, modifier: Modifier = Modifier) {
+    val transition = rememberInfiniteTransition(label = "halo")
+    val ping by transition.animateFloat(
+        initialValue = 0f, targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            tween(if (intense) 1500 else 3200, easing = LinearEasing), RepeatMode.Restart,
+        ),
+        label = "ping",
+    )
+    val glow by transition.animateFloat(
+        initialValue = 0.22f, targetValue = 0.45f,
+        animationSpec = infiniteRepeatable(
+            tween(if (intense) 1100 else 2600, easing = FastOutSlowInEasing), RepeatMode.Reverse,
+        ),
+        label = "glow",
+    )
+
+    Box(modifier = modifier, contentAlignment = Alignment.Center) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val c = center
+            val maxR = size.minDimension / 2f
+            // Soft radial glow behind the shield.
+            val glowAlpha = if (breathing) glow else 0.18f
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(color.copy(alpha = glowAlpha * 0.6f), Color.Transparent),
+                    center = c, radius = maxR,
+                ),
+                radius = maxR, center = c,
+            )
+            // Static base ring.
+            drawCircle(color.copy(alpha = 0.14f), radius = maxR * 0.64f, center = c, style = Stroke(2.dp.toPx()))
+            // Expanding ping — the live "someone's here" pulse.
+            if (breathing) {
+                val r = lerp(maxR * 0.64f, maxR * 0.98f, ping)
+                val a = (1f - ping) * (if (intense) 0.5f else 0.26f)
+                drawCircle(color.copy(alpha = a), radius = r, center = c, style = Stroke((if (intense) 3 else 2).dp.toPx()))
+            }
+        }
+        ShieldStatus(color = color, modifier = Modifier.size(maxShieldSize))
+    }
+}
+
+private val maxShieldSize = 104.dp
+
+@Composable
+private fun ConnectionStatus(online: Boolean, running: Boolean) {
+    val (label, dot) = when {
+        online -> "Connected to server" to Ok
+        running -> "Connecting…" to Amber
+        else -> "Offline" to TextFaint
+    }
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
+        Box(Modifier.size(8.dp).clip(CircleShape).background(dot))
+        Text(label, color = TextDim, style = Type.caption)
+    }
+}
+
+/**
+ * Who can see the camera right now. With only a viewer count available we show
+ * honest presence avatars; when names are plumbed through AgentState this is
+ * the one place to swap circles for initials.
+ */
+@Composable
+private fun PresenceRow(viewerCount: Int) {
+    if (viewerCount <= 0) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
+            Box(Modifier.size(8.dp).clip(CircleShape).background(TextFaint))
+            Text("No one is viewing", color = TextFaint, style = Type.caption)
+        }
+        return
+    }
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.md)) {
+        Row(horizontalArrangement = Arrangement.spacedBy((-10).dp)) {
+            repeat(minOf(viewerCount, 4)) { i -> ViewerAvatar(index = i) }
+        }
+        val n = viewerCount
+        Text(
+            (if (n > 4) "+${n - 4} · " else "") + "$n watching now",
+            color = Danger, style = Type.bodyStrong,
+        )
+    }
+}
+
+@Composable
+private fun ViewerAvatar(index: Int) {
+    val tint = avatarColorFor("viewer-$index")
+    Box(
+        modifier = Modifier
+            .size(34.dp)
+            .clip(CircleShape)
+            .background(Bg) // ring gap so overlapped avatars read as separate
+            .padding(2.dp)
+            .clip(CircleShape)
+            .background(tint.glow(0.22f)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Canvas(Modifier.size(18.dp)) {
+            val w = size.width; val h = size.height
+            // head
+            drawCircle(tint, radius = w * 0.20f, center = androidx.compose.ui.geometry.Offset(w / 2f, h * 0.34f))
+            // shoulders
+            val body = Path().apply {
+                addArc(
+                    androidx.compose.ui.geometry.Rect(
+                        left = w * 0.16f, top = h * 0.55f, right = w * 0.84f, bottom = h * 1.25f,
+                    ),
+                    180f, 180f,
+                )
+            }
+            drawPath(body, tint)
+        }
+    }
+}
+
+@Composable
+private fun ModeCard(
+    mode: CameraMode,
+    quality: VideoQuality,
+    motionEnabled: Boolean,
+    onModeChange: (CameraMode) -> Unit,
+) {
+    Card {
+        Text("MODE", color = TextDim, style = Type.label)
+        SegmentedControl(
+            labels = listOf("Drop In", "Active"),
+            selected = if (mode == CameraMode.ACTIVE) 1 else 0,
+        ) { idx -> onModeChange(if (idx == 1) CameraMode.ACTIVE else CameraMode.DROP_IN) }
+        Text(
+            if (mode == CameraMode.DROP_IN)
+                "Camera stays off until someone views — best for privacy and power."
+            else
+                "Camera streams continuously — enables motion alerts while you're away.",
+            color = TextDim, style = Type.caption,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(Space.md)) {
+            MetaPill("${quality.label}")
+            MetaPill(if (mode == CameraMode.ACTIVE && motionEnabled) "Alerts on" else "Alerts off")
+        }
+    }
+}
+
+/** A small, quiet info pill for at-a-glance config facts. */
+@Composable
+private fun MetaPill(text: String) {
+    Box(
+        modifier = Modifier.clip(Radius.pill).background(Surface2).padding(horizontal = Space.md, vertical = 6.dp),
+    ) { Text(text, color = TextDim, style = Type.caption) }
+}
+
+@Composable
+private fun ColumnScope.ActivityCard(events: List<Long>, now: Long) {
+    Card(Modifier.weight(1f)) {
+        Text("RECENT ACTIVITY", color = TextDim, style = Type.label)
+        Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+            if (events.isEmpty()) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(Space.md)) {
+                    Canvas(Modifier.size(60.dp)) {
+                        val r = size.minDimension / 2f
+                        drawCircle(OutlineSoft, radius = r * 0.95f, style = Stroke(1.5.dp.toPx()))
+                        drawCircle(OutlineSoft, radius = r * 0.58f, style = Stroke(1.5.dp.toPx()))
+                        drawCircle(TextFaint, radius = r * 0.12f)
                     }
-                } else {
-                    Button(
-                        onClick = onDisarm,
-                        colors = ButtonDefaults.buttonColors(containerColor = Danger),
-                        modifier = Modifier.fillMaxWidth().height(56.dp),
-                    ) { Text("Disarm", fontSize = 18.sp, fontWeight = FontWeight.Bold) }
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(Space.xs)) {
+                        Text("No motion detected", color = TextDim, style = Type.body)
+                        Text("You're all clear", color = TextFaint, style = Type.caption)
+                    }
+                }
+            } else {
+                Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(Space.md)) {
+                    events.forEachIndexed { i, ts ->
+                        val fresh = now - ts < 30_000
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.md)) {
+                            Box(Modifier.size(8.dp).clip(CircleShape).background(if (fresh) Amber else TextFaint))
+                            Text("Motion detected", color = if (fresh) TextColor else TextDim, style = Type.body, modifier = Modifier.weight(1f))
+                            Text(relTime(ts, now), color = TextFaint, style = Type.caption)
+                        }
+                        if (i < events.lastIndex) {
+                            Box(Modifier.fillMaxWidth().height(1.dp).background(OutlineSoft))
+                        }
+                    }
                 }
             }
         }
+    }
+}
+
+/**
+ * The one consequential action. Arm is a confident primary; Disarm asks for a
+ * second tap so the camera never goes dark by accident.
+ */
+@Composable
+private fun ArmButton(running: Boolean, canArm: Boolean, onArm: () -> Unit, onDisarm: () -> Unit) {
+    if (!running) {
+        Button(
+            onClick = onArm,
+            enabled = canArm,
+            shape = Radius.button,
+            modifier = Modifier.fillMaxWidth().height(Touch.action),
+        ) { Text("Arm", style = Type.titleSmall) }
+        if (!canArm) {
+            Spacer(Modifier.height(Space.sm))
+            Text(
+                "Set the signaling server and camera token in Settings first.",
+                color = Amber, style = Type.caption,
+            )
+        }
+        return
+    }
+
+    var confirm by remember { mutableStateOf(false) }
+    LaunchedEffect(confirm) { if (confirm) { delay(3000); confirm = false } }
+    Button(
+        onClick = { if (confirm) { confirm = false; onDisarm() } else confirm = true },
+        colors = ButtonDefaults.buttonColors(
+            containerColor = if (confirm) Danger else Surface2,
+            contentColor = if (confirm) OnPrimary else Danger,
+        ),
+        shape = Radius.button,
+        modifier = Modifier.fillMaxWidth().height(Touch.action),
+    ) { Text(if (confirm) "Tap again to disarm" else "Disarm", style = Type.titleSmall) }
+}
+
+/** Shared rounded surface card with consistent padding & rhythm. */
+@Composable
+private fun Card(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
+    Column(
+        modifier = modifier.fillMaxWidth().clip(Radius.card).background(SurfaceColor).padding(Space.lg),
+        verticalArrangement = Arrangement.spacedBy(Space.md),
+        content = content,
+    )
+}
+
+private fun relTime(ts: Long, now: Long): String {
+    val d = (now - ts).coerceAtLeast(0)
+    return when {
+        d < 60_000 -> "just now"
+        d < 3_600_000 -> "${d / 60_000}m ago"
+        d < 86_400_000 -> "${d / 3_600_000}h ago"
+        else -> SimpleDateFormat("MMM d", Locale.getDefault()).format(Date(ts))
+    }
+}
+
+private fun uptime(since: Long, now: Long): String {
+    val d = (now - since).coerceAtLeast(0)
+    val mins = d / 60_000
+    return when {
+        mins < 1 -> "just now"
+        mins < 60 -> "for ${mins}m"
+        else -> "for ${mins / 60}h ${mins % 60}m"
     }
 }
 
@@ -397,7 +705,7 @@ private fun SettingsScreen(
             .padding(top = 60.dp, start = 28.dp, end = 28.dp, bottom = 28.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        AppHeader(title = "SETTINGS") {
+        AppHeader(title = "Settings") {
             OutlinedButton(onClick = onBack) { Text("Back") }
         }
 
@@ -483,7 +791,9 @@ private fun SettingsScreen(
 @Composable
 private fun AppHeader(title: String, trailing: @Composable () -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(title, color = TextColor, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+        ShieldStatus(color = Primary, modifier = Modifier.size(26.dp))
+        Spacer(Modifier.width(Space.md))
+        Text(title, color = TextColor, style = Type.title)
         Spacer(Modifier.weight(1f))
         trailing()
     }
@@ -528,30 +838,18 @@ private fun ToggleRow(
 }
 
 @Composable
-private fun RowScope.StatChip(label: String, value: String, valueColor: Color = TextColor) {
-    Column(
-        modifier = Modifier.weight(1f).clip(RoundedCornerShape(14.dp))
-            .background(SurfaceColor).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        Text(label.uppercase(), color = TextDim, fontSize = 11.sp, fontWeight = FontWeight.Medium)
-        Text(value, color = valueColor, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-    }
-}
-
-@Composable
 private fun SegmentedControl(
     labels: List<String>, selected: Int, enabled: Boolean = true, onSelect: (Int) -> Unit,
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+        modifier = Modifier.fillMaxWidth().clip(Radius.control)
             .background(Surface2).padding(4.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         labels.forEachIndexed { i, label ->
             val isSel = i == selected
             Box(
-                modifier = Modifier.weight(1f).clip(RoundedCornerShape(9.dp))
+                modifier = Modifier.weight(1f).clip(Radius.controlInner)
                     .background(if (isSel) Primary else Color.Transparent)
                     .then(if (enabled) Modifier.clickable { onSelect(i) } else Modifier)
                     .padding(vertical = 12.dp),
@@ -559,9 +857,8 @@ private fun SegmentedControl(
             ) {
                 Text(
                     label,
-                    color = if (isSel) Color.White else if (enabled) TextColor else TextDim,
-                    fontSize = 15.sp,
-                    fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
+                    color = if (isSel) OnPrimary else if (enabled) TextColor else TextFaint,
+                    style = if (isSel) Type.bodyStrong else Type.body,
                 )
             }
         }
