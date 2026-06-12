@@ -51,6 +51,13 @@ const CAMERA_ID = process.env.CAMERA_ID || 'home';
 // the browser camera simulator and during migration). Set false in production
 // once every camera has its own provisioned key.
 const ALLOW_CAMERA_TOKEN = process.env.ALLOW_CAMERA_TOKEN !== 'false';
+// Token-free device claiming (trust-on-first-use). While the system is
+// unclaimed, the first device may provision its key WITHOUT the shared token;
+// the slot then auto-locks (further provisioning needs the token). Set
+// CAMERA_CLAIM_OPEN=true to deliberately re-open claiming (e.g. replace a Portal).
+const CAMERA_CLAIM_OPEN = process.env.CAMERA_CLAIM_OPEN === 'true';
+// Max clock skew for a signed camera REST request (replay window).
+const CAMERA_SIG_WINDOW_MS = 5 * 60_000;
 
 // --- Security headers + a tiny in-memory rate limiter -----------------------
 
@@ -148,6 +155,18 @@ function readJsonBody(req) {
   });
 }
 
+// Read the raw request body (unparsed) — needed to hash it for signature
+// verification before parsing. Caps body size like readJsonBody.
+function readRawBody(req) {
+  return new Promise((resolve) => {
+    let data = '';
+    req.on('data', (c) => { data += c; if (data.length > 1_000_000) req.destroy(); });
+    req.on('end', () => resolve(data));
+    req.on('error', () => resolve(''));
+  });
+}
+function parseJson(raw) { try { return raw ? JSON.parse(raw) : {}; } catch { return null; } }
+
 function clientIp(req) {
   // Behind a single trusted proxy (Caddy), the real client IP is the LAST entry
   // it appends to X-Forwarded-For. Taking the first would let a client spoof the
@@ -209,25 +228,38 @@ async function handleApi(req, res) {
 
   // --- camera-authenticated endpoints (the Portal manages its own access) ---
   if (url.startsWith('/camera/')) {
-    if (!requireCamera(req)) return sendJson(res, 401, { error: 'camera auth required' });
-    // Bootstrap: a camera registers its public key once, using the shared
-    // CAMERA_TOKEN. Afterwards it authenticates by signing nonces (no token).
+    // Provisioning is the trust-on-first-use bootstrap. While the system is
+    // unclaimed (or claiming is explicitly re-opened) a device registers its
+    // public key WITHOUT any shared token; the slot then auto-locks. Once
+    // claimed, provisioning falls back to requiring the shared CAMERA_TOKEN.
     if (url === '/camera/provision' && method === 'POST') {
-      const body = await readJsonBody(req);
+      const body = parseJson(await readRawBody(req));
+      const claimingOpen = CAMERA_CLAIM_OPEN || !auth.isClaimed();
+      if (!claimingOpen && !requireCamera(req)) {
+        return sendJson(res, 403, { error: 'system already claimed; provisioning is locked' });
+      }
       const cam = body && auth.provisionCamera(body.name, body.publicKey);
       if (!cam) return sendJson(res, 400, { error: 'invalid public key' });
-      auth.record('camera_provision', { cameraId: cam.id, name: cam.name, ip: clientIp(req) });
+      auth.record('camera_provision', { cameraId: cam.id, name: cam.name, ip: clientIp(req), tofu: claimingOpen });
       return sendJson(res, 200, cam);
     }
+
+    // All other management endpoints authenticate by the device's EC-key
+    // signature (no shared secret on the device). The shared CAMERA_TOKEN stays
+    // a fallback for the simulator / migration while ALLOW_CAMERA_TOKEN is set.
+    const raw = await readRawBody(req);
+    const signed = cameraFromSignature(req, raw);
+    if (!signed && !(ALLOW_CAMERA_TOKEN && requireCamera(req))) {
+      return sendJson(res, 401, { error: 'camera auth required' });
+    }
+    const body = parseJson(raw);
     if (url === '/camera/enroll/start' && method === 'POST') {
-      const body = await readJsonBody(req);
       return sendJson(res, 200, auth.createEnrollTicket(body?.name, clientIp(req)));
     }
     if (url === '/camera/viewers' && method === 'GET') {
       return sendJson(res, 200, { viewers: auth.listViewers() });
     }
     if (url === '/camera/revoke' && method === 'POST') {
-      const body = await readJsonBody(req);
       const v = body && auth.setRevoked(body.id, true);
       if (!v) return sendJson(res, 404, { error: 'no such viewer' });
       auth.record('revoke', { viewerId: v.id, name: v.name, by: 'camera' });
@@ -235,7 +267,6 @@ async function handleApi(req, res) {
       return sendJson(res, 200, { viewer: v });
     }
     if (url === '/camera/enable' && method === 'POST') {
-      const body = await readJsonBody(req);
       const v = body && auth.setRevoked(body.id, false);
       if (!v) return sendJson(res, 404, { error: 'no such viewer' });
       auth.record('enable', { viewerId: v.id, name: v.name, by: 'camera' });
@@ -387,6 +418,23 @@ function requireCamera(req) {
   const t = (req.headers['authorization'] || '').replace(/^Bearer\s+/i, '');
   if (!t || t.length !== CAMERA_TOKEN.length) return false;
   return crypto.timingSafeEqual(Buffer.from(t), Buffer.from(CAMERA_TOKEN));
+}
+
+// Authenticate a /camera/* request by the device's EC-key signature (no shared
+// secret on the device). The device signs the canonical string
+//   METHOD\npath\ntimestamp\nbase64(sha256(body))
+// with its Keystore key; we verify against the stored public key and reject
+// stale timestamps (replay). Returns the cameraId on success, else null.
+function cameraFromSignature(req, rawBody) {
+  const id = req.headers['x-camera-id'];
+  const ts = Number(req.headers['x-camera-timestamp']);
+  const sig = req.headers['x-camera-signature'];
+  if (!id || !sig || !Number.isFinite(ts)) return null;
+  if (Math.abs(Date.now() - ts) > CAMERA_SIG_WINDOW_MS) return null;
+  const path = req.url.split('?')[0];
+  const bodyHash = crypto.createHash('sha256').update(rawBody || '').digest('base64');
+  const canonical = `${req.method}\n${path}\n${ts}\n${bodyHash}`;
+  return auth.verifyCameraData(id, canonical, sig) ? id : null;
 }
 
 // Tell the Portal a device just enrolled (so it can show "X enrolled — Keep/Remove").

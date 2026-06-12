@@ -23,6 +23,17 @@ const publicKeyB64 = publicKey.export({ type: 'spki', format: 'der' }).toString(
 const sign = (nonceB64, key = privateKey) =>
   crypto.sign('sha256', Buffer.from(nonceB64, 'base64'), key).toString('base64');
 
+// Sign a REST request the way the device does: over
+//   METHOD\npath\ntimestamp\nbase64(sha256(body)).
+function camHeaders(method, path, body) {
+  const ts = Date.now();
+  const bodyStr = body ? JSON.stringify(body) : '';
+  const bodyHash = crypto.createHash('sha256').update(bodyStr).digest('base64');
+  const canonical = `${method}\n${path}\n${ts}\n${bodyHash}`;
+  const sig = crypto.sign('sha256', Buffer.from(canonical), privateKey).toString('base64');
+  return { 'x-camera-id': cameraId, 'x-camera-timestamp': String(ts), 'x-camera-signature': sig };
+}
+
 // Drive a camera registration; resolves with the final server message.
 function cameraRegister({ cameraId, token, signer }) {
   return new Promise((resolve) => {
@@ -60,6 +71,25 @@ ok((await cameraRegister({ cameraId, signer: (n) => sign(n, wrong) })).code === 
 
 // 5. Legacy CAMERA_TOKEN still works (simulator/migration).
 ok((await cameraRegister({ token: CAMERA_TOKEN, signer: () => '' })).type === 'welcome', 'legacy CAMERA_TOKEN still registers');
+
+// 5b. The device's EC-key signature authenticates a management call — no token.
+{
+  const path = '/camera/viewers';
+  ok((await fetch(BASE + path, { headers: camHeaders('GET', path) })).status === 200,
+    'signed camera request authenticates management call (no shared token)');
+}
+
+// 5c. A tampered signature is rejected.
+{
+  const path = '/camera/viewers';
+  const h = camHeaders('GET', path);
+  h['x-camera-signature'] = crypto.randomBytes(64).toString('base64');
+  ok((await fetch(BASE + path, { headers: h })).status === 401, 'bad camera signature is rejected');
+}
+
+// 5d. TOFU: once the system is claimed, token-free provisioning is locked.
+ok((await post('/camera/provision', { name: 'rogue', publicKey: publicKeyB64 })).status === 403,
+  'token-free provisioning rejected once the system is claimed (TOFU lock)');
 
 // 6. Admin can list + revoke the camera; revoked camera can't auth.
 const adminToken = (await (await post('/auth/admin', { password: ADMIN_PW })).json()).adminToken;

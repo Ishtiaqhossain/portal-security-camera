@@ -239,6 +239,28 @@ export function verifyCameraSignature(id, nonceB64, signatureB64) {
   }
 }
 
+// Verify a camera's signature over arbitrary request bytes (HTTP request
+// signing). Same key + scheme as the WebSocket nonce challenge, so a provisioned
+// device can authenticate REST calls without any shared secret on the device.
+export function verifyCameraData(id, data, signatureB64) {
+  const cam = db.cameras.find((c) => c.id === id);
+  if (!cam || cam.revoked || !signatureB64) return false;
+  try {
+    const pub = crypto.createPublicKey({ key: Buffer.from(cam.publicKey, 'base64'), format: 'der', type: 'spki' });
+    const buf = Buffer.isBuffer(data) ? data : Buffer.from(String(data));
+    const ok = crypto.verify('sha256', buf, pub, Buffer.from(signatureB64, 'base64'));
+    if (ok) { cam.lastSeenAt = Date.now(); persist(); }
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
+/** True once at least one non-revoked camera has claimed the system (TOFU). */
+export function isClaimed() {
+  return db.cameras.some((c) => !c.revoked);
+}
+
 export function listCameras() {
   return db.cameras.map((c) => ({
     id: c.id, name: c.name, createdAt: c.createdAt, lastSeenAt: c.lastSeenAt, revoked: c.revoked,
