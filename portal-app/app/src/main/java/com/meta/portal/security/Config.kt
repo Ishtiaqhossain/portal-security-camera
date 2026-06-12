@@ -68,7 +68,9 @@ data class Config(
         fun load(context: Context): Config {
             val p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             return Config(
-                serverUrl = p.getString("serverUrl", "") ?: "",
+                // Fall back to the build-time default (set for debug builds) so a
+                // fresh local install is ready to Arm without retyping the URL.
+                serverUrl = (p.getString("serverUrl", "") ?: "").ifBlank { BuildConfig.DEFAULT_SERVER_URL },
                 cameraToken = p.getString("cameraToken", "") ?: "",
                 // Back-compat: the old `onDemand` boolean maps onto the mode.
                 mode = when {

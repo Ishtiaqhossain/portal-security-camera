@@ -21,9 +21,18 @@ android {
     }
 
     buildTypes {
+        debug {
+            // Local convenience: pre-fill the signaling server so a fresh debug
+            // install is ready to Arm without retyping it every time. Override
+            // with -PportalServerUrl=wss://your-host. Release builds get "".
+            val devServer = (project.findProperty("portalServerUrl") as String?)
+                ?: "wss://your-portal.example.com"
+            buildConfigField("String", "DEFAULT_SERVER_URL", "\"$devServer\"")
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            buildConfigField("String", "DEFAULT_SERVER_URL", "\"\"")
         }
     }
 
@@ -36,6 +45,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 
