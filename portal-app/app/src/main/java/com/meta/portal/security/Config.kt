@@ -40,8 +40,11 @@ data class Config(
     // its public key. Blank until provisioned (then it authenticates by signing).
     val cameraId: String = "",
 ) {
+    // Only the server URL is required: the device provisions its own key on
+    // first arm (trust-on-first-use) and authenticates by signing — no token to
+    // type. `cameraToken` is an optional legacy/migration fallback.
     val isValid: Boolean
-        get() = serverUrl.isNotBlank() && cameraToken.isNotBlank()
+        get() = serverUrl.isNotBlank()
 
     /** Drop In mode means capture only while a viewer is connected. */
     val onDemand: Boolean

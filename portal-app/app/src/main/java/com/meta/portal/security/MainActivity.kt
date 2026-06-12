@@ -59,7 +59,6 @@ import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.meta.portal.security.ui.theme.Amber
@@ -635,7 +634,7 @@ private fun ArmButton(running: Boolean, canArm: Boolean, onArm: () -> Unit, onDi
         if (!canArm) {
             Spacer(Modifier.height(Space.sm))
             Text(
-                "Add the signaling server and camera key in Settings first.",
+                "Add the signaling server in Settings first.",
                 color = Amber, style = Type.caption,
             )
         }
@@ -696,7 +695,6 @@ private fun SettingsScreen(
     onSave: (Config) -> Unit,
 ) {
     var serverUrl by remember { mutableStateOf(initial.serverUrl) }
-    var token by remember { mutableStateOf(initial.cameraToken) }
     var mode by remember { mutableStateOf(initial.mode) }
     var motion by remember { mutableStateOf(initial.motionEnabled) }
     var quality by remember { mutableStateOf(initial.quality) }
@@ -723,11 +721,9 @@ private fun SettingsScreen(
                             label = { Text("Signaling server (wss://…)") }, singleLine = true,
                             modifier = Modifier.fillMaxWidth(),
                         )
-                        OutlinedTextField(
-                            value = token, onValueChange = { token = it },
-                            label = { Text("Camera key (keep private)") }, singleLine = true,
-                            visualTransformation = PasswordVisualTransformation(),
-                            modifier = Modifier.fillMaxWidth(),
+                        Text(
+                            "This Portal sets up its own secure key on first arm — no token to enter.",
+                            color = TextDim, style = Type.caption,
                         )
                     }
                     SectionCard("Camera") {
@@ -783,7 +779,7 @@ private fun SettingsScreen(
                     onClick = {
                         onSave(
                             initial.copy(
-                                serverUrl = serverUrl, cameraToken = token, mode = mode,
+                                serverUrl = serverUrl, mode = mode,
                                 motionEnabled = motion && mode == CameraMode.ACTIVE,
                                 quality = quality, startOnBoot = startOnBoot,
                             )

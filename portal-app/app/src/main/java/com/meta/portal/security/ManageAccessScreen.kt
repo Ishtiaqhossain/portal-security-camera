@@ -62,7 +62,7 @@ import java.util.Locale
 @Composable
 fun ManageAccessScreen(config: Config, onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
-    val api = remember { CameraApi(config.httpBaseUrl, config.cameraToken) }
+    val api = remember { CameraApi(config.httpBaseUrl, config.cameraToken, config.cameraId, CameraIdentity()) }
 
     var viewers by remember { mutableStateOf<List<CameraApi.Viewer>>(emptyList()) }
     var name by remember { mutableStateOf("") }

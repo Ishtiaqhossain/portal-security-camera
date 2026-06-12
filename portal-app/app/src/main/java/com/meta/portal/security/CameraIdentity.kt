@@ -51,6 +51,21 @@ class CameraIdentity {
         }
     }
 
+    /**
+     * Sign an arbitrary UTF-8 string (e.g. a canonical HTTP request line) with
+     * the device key; returns the DER ECDSA signature, base64. Used to
+     * authenticate REST calls without any shared secret. Verified server-side by
+     * verifyCameraData() in signaling-server/auth.js.
+     */
+    fun signData(data: String): String {
+        val key = ensureKey()
+        return Signature.getInstance("SHA256withECDSA").run {
+            initSign(key)
+            update(data.toByteArray(Charsets.UTF_8))
+            Base64.encodeToString(sign(), Base64.NO_WRAP)
+        }
+    }
+
     companion object {
         private const val KEYSTORE = "AndroidKeyStore"
         private const val ALIAS = "portal_camera_key"
