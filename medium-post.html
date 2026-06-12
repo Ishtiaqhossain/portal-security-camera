@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Turning a Discontinued Meta Portal Into a Home Security Camera</title>
+<style>
+  :root {
+    --ink: #16181d;
+    --ink-2: #4a4f57;
+    --ink-3: #6b7280;
+    --rule: #e6e8eb;
+    --accent: #0866ff;
+    --code-bg: #f5f6f8;
+    --page: #ffffff;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--page);
+    color: var(--ink);
+    font-family: Charter, Georgia, "Times New Roman", serif;
+    font-size: 20px;
+    line-height: 1.7;
+  }
+  .wrap { max-width: 720px; margin: 0 auto; padding: 56px 22px 96px; }
+  h1 {
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 38px;
+    line-height: 1.18;
+    letter-spacing: -0.02em;
+    font-weight: 800;
+    margin: 0 0 14px;
+  }
+  .dek {
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 20px;
+    color: var(--ink-3);
+    margin: 0 0 14px;
+    line-height: 1.4;
+  }
+  .byline {
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 15px;
+    color: var(--ink-3);
+    padding-bottom: 26px;
+    margin-bottom: 30px;
+    border-bottom: 1px solid var(--rule);
+  }
+  h2 {
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 27px;
+    letter-spacing: -0.01em;
+    font-weight: 700;
+    margin: 46px 0 8px;
+  }
+  p { margin: 0 0 22px; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  strong { font-weight: 700; }
+  ul { padding-left: 1.3em; margin: 0 0 22px; }
+  li { margin: 0 0 10px; }
+  em { color: var(--ink-2); }
+  code {
+    font-family: "SF Mono", SFMono-Regular, ui-monospace, Menlo, Consolas, monospace;
+    font-size: 0.82em;
+    background: var(--code-bg);
+    padding: 2px 6px;
+    border-radius: 5px;
+  }
+  .fig { margin: 30px 0 10px; }
+  .fig svg { width: 100%; height: auto; display: block; }
+  .caption, figcaption {
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 14px;
+    color: var(--ink-3);
+    text-align: center;
+    margin: 6px 0 28px;
+    line-height: 1.45;
+  }
+  figure { margin: 30px 0 10px; }
+  figure img {
+    width: 100%;
+    height: auto;
+    display: block;
+    border-radius: 12px;
+    border: 1px solid var(--rule);
+    background: #000;
+  }
+  /* portrait phone screenshots: cap width, center */
+  figure.phone img {
+    max-width: 340px;
+    margin: 0 auto;
+    border-radius: 18px;
+  }
+  .num { color: var(--accent); font-weight: 700; }
+  hr { border: none; border-top: 1px solid var(--rule); margin: 44px 0; }
+  /* SVG diagram tokens */
+  .box { fill: #f7f9ff; stroke: #cdd9f5; stroke-width: 1.5; }
+  .box-vps { fill: #f4f6f8; stroke: #d8dde3; stroke-width: 1.5; }
+  .t-title { font: 700 15px -apple-system, "Segoe UI", Roboto, sans-serif; fill: var(--ink); }
+  .t-sub { font: 13px -apple-system, "Segoe UI", Roboto, sans-serif; fill: var(--ink-3); }
+  .t-lbl { font: 12px -apple-system, "Segoe UI", Roboto, sans-serif; fill: var(--ink-2); }
+  .t-media { font: 700 13px -apple-system, "Segoe UI", Roboto, sans-serif; fill: var(--accent); }
+  .flow { stroke: #9aa3af; stroke-width: 1.6; fill: none; }
+  .media { stroke: var(--accent); stroke-width: 2.2; fill: none; }
+</style>
+</head>
+<body>
+<article class="wrap">
+
+  <h1>Turning a Discontinued Meta Portal Into a Home Security Camera</h1>
+  <p class="dek">Meta added ADB support to Portal. Here's what I built with mine — and the security model behind it.</p>
+  <p class="byline">~6 min read · open source on <a href="https://github.com/Ishtiaqhossain/portal-security-camera">GitHub</a></p>
+
+  <p>I worked on <strong>Meta Portal</strong> a few years ago — the smart display whose standout feature was a camera that auto-framed you as you moved around the room. Meta discontinued the consumer Portal line in 2022, and mine had been sitting unused since.</p>
+
+  <p>Recently, Meta added <strong>ADB support</strong> to Portal devices (<a href="https://github.com/meta-quest/portal-samples">documentation here</a>) — meaning you can connect over the Android Debug Bridge and sideload your own apps. Portal has always been Android underneath, so this effectively reopens it as a development platform.</p>
+
+  <p>That reframes an idle Portal as what it physically is: an always-on, wall-powered device with a good camera, a microphone, a speaker, and a screen. Most of a security camera, in other words. So I built the rest.</p>
+
+  <p>The whole thing is open source: <a href="https://github.com/Ishtiaqhossain/portal-security-camera"><strong>github.com/Ishtiaqhossain/portal-security-camera</strong></a>.</p>
+
+  <figure>
+    <img src="assets/screenshots/app-dashboard.png" alt="Portal Security app home screen showing Protected armed state, Active mode, and a log of recent motion events" />
+    <figcaption>The app running on the Portal, armed in Active mode: status, capture mode, and a live log of motion events. Notably, there's no camera feed on the device itself — the feed is for remote viewers only.</figcaption>
+  </figure>
+
+  <h2>What it does</h2>
+
+  <figure class="phone">
+    <img src="assets/screenshots/web-viewer.jpg" alt="Phone browser showing the live camera feed with a LIVE badge, Talk and Unmute buttons, and a motion-detected alert" />
+    <figcaption>The viewer in a phone browser — a LIVE feed, <strong>Talk</strong> for two-way audio, and a motion alert ("Motion detected (level 4)") arriving in real time. No app to install; it's just a web page at the camera's address.</figcaption>
+  </figure>
+
+  <ul>
+    <li><strong>Live view from any browser</strong> — nothing to install for whoever's watching.</li>
+    <li><strong>Two-way audio</strong> — listen, and talk back through the Portal's speaker. (Portal was always a two-way device.)</li>
+    <li><strong>Motion alerts</strong> via Web Push, delivered even when no tab is open.</li>
+    <li><strong>Two capture modes:</strong> <em>Active</em> streams continuously and runs motion detection; <em>Drop In</em> keeps the camera and mic off until a viewer connects, then wakes on demand — lower power, and nothing is captured when no one is watching.</li>
+  </ul>
+
+  <figure>
+    <img src="assets/screenshots/app-settings.png" alt="Settings screen with capture mode, video quality, motion alerts, and start-on-boot" />
+    <figcaption>Settings: choose the capture mode, video quality, and whether motion alerts are on. The Portal sets up its own key on first arm — there's no token to copy.</figcaption>
+  </figure>
+
+  <h2>Architecture</h2>
+  <p>Three parts: the Portal (the camera agent), a small signaling server on a VPS, and the browser viewer. The key property is that <strong>video and audio never touch the server</strong> — they go peer-to-peer over WebRTC. The server only introduces the two sides and handles auth.</p>
+
+  <div class="fig">
+    <svg viewBox="0 0 860 460" role="img" aria-label="Architecture diagram">
+      <defs>
+        <marker id="arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="#9aa3af" />
+        </marker>
+        <marker id="arrowB" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="#0866ff" />
+        </marker>
+      </defs>
+
+      <!-- Portal box -->
+      <rect class="box" x="40" y="40" width="270" height="118" rx="14" />
+      <text class="t-title" x="60" y="72">PORTAL — camera</text>
+      <text class="t-sub" x="60" y="96">Android agent</text>
+      <text class="t-sub" x="60" y="118">camera · mic · speaker</text>
+      <text class="t-sub" x="60" y="140">EC key in Keystore</text>
+
+      <!-- Browser box -->
+      <rect class="box" x="550" y="40" width="270" height="118" rx="14" />
+      <text class="t-title" x="570" y="72">BROWSER — viewer</text>
+      <text class="t-sub" x="570" y="96">phone / laptop, anywhere</text>
+      <text class="t-sub" x="570" y="118">live view</text>
+      <text class="t-sub" x="570" y="140">talk-back mic</text>
+
+      <!-- WebRTC media arrow (between the two boxes) -->
+      <line class="media" x1="312" y1="99" x2="548" y2="99" marker-start="url(#arrowB)" marker-end="url(#arrowB)" stroke-dasharray="2 0" />
+      <text class="t-media" x="430" y="84" text-anchor="middle">WebRTC media · P2P</text>
+      <text class="t-lbl" x="430" y="120" text-anchor="middle">video + 2-way audio · DTLS-SRTP</text>
+
+      <!-- signaling lines down to VPS -->
+      <path class="flow" d="M175,158 L300,330" marker-end="url(#arrow)" />
+      <path class="flow" d="M685,158 L560,330" marker-end="url(#arrow)" />
+      <text class="t-lbl" x="150" y="250" text-anchor="end" transform="rotate(0)">SDP · ICE</text>
+      <text class="t-lbl" x="150" y="268" text-anchor="end">enroll · auth</text>
+      <text class="t-lbl" x="712" y="250">SDP · ICE</text>
+      <text class="t-lbl" x="712" y="268">motion · push</text>
+
+      <!-- VPS box -->
+      <rect class="box-vps" x="150" y="330" width="560" height="96" rx="14" />
+      <text class="t-title" x="430" y="362" text-anchor="middle">VPS · ~$5 / month</text>
+      <text class="t-sub" x="430" y="388" text-anchor="middle">Caddy (auto-HTTPS) · signaling (Node) · coturn (TURN)</text>
+      <text class="t-lbl" x="430" y="410" text-anchor="middle">never sees media · TURN relays only if a direct path fails</text>
+    </svg>
+  </div>
+  <p class="caption">Signaling and auth go to the VPS over WSS; the media flows directly between Portal and browser.</p>
+
+  <ul>
+    <li><strong>Portal app</strong> (Kotlin/Compose) captures camera + mic, answers WebRTC offers, runs motion detection, and shows a status dashboard — not the feed itself; the feed is for remote viewers.</li>
+    <li><strong>Signaling server</strong> (Node) brokers the SDP/ICE handshake, handles enrollment and auth, and relays motion events. It never sees media.</li>
+    <li><strong>coturn</strong> is a TURN relay used only as a fallback, for cases where the two peers can't reach each other directly (e.g. a viewer on cellular behind carrier-grade NAT).</li>
+    <li><strong>Caddy</strong> terminates TLS with an automatic Let's Encrypt cert. The whole backend is a three-service <code>docker-compose</code> stack on one small VPS.</li>
+  </ul>
+
+  <h2>The security model</h2>
+  <p>A camera pointed at a home is a high-value target, so most of the work went into the trust model rather than the video path. Two decisions worth calling out:</p>
+
+  <p><span class="num">1.</span> <strong>No shared password for viewers.</strong> To grant access, the owner generates a <strong>single-use QR code on the Portal</strong>. A viewer scans it — and the server only accepts the enrollment if the scanning device is <strong>on the same Wi-Fi as the camera</strong> (it compares public IPs). Physical/network presence becomes the enrollment factor. Each device then gets its own identity and a revocable, short-lived session: a 15-minute access token refreshed against a 30-day, revocable refresh token. You can cut off any one device instantly.</p>
+
+  <figure>
+    <img src="assets/screenshots/app-qr.png" alt="Portal Viewers screen generating a single-use enrollment QR code, with an enrolled-devices list showing Revoke and Re-enable controls" />
+    <figcaption>"Add a viewer" on the Portal generates a single-use QR that expires in ~2 minutes. The viewer scans it on the same Wi-Fi; the device then appears in the list on the right, where any one can be revoked — or re-enabled — instantly.</figcaption>
+  </figure>
+
+  <p><span class="num">2.</span> <strong>The camera authenticates with a key, not a token.</strong> On first run the Portal generates an EC P-256 keypair in its hardware-backed Keystore — the private key never leaves the device. It authenticates by <strong>signing a server-issued nonce</strong> (challenge-response). The server stores only the public key, so a server compromise can't be used to impersonate the camera, and there's no shared camera secret to leak.</p>
+
+  <p>Supporting hardening: TLS everywhere, DTLS-SRTP on the media, admin-login rate-limiting with lockout, security headers, and a per-connection error boundary so one bad message can't take the server down.</p>
+
+  <h2>Running it</h2>
+  <p>It runs on a Portal Go in my house, with the backend on a $5/month VPS behind a free DuckDNS hostname. Deploys are a <code>git push</code> — a small poller on the VPS pulls <code>main</code> and rebuilds the compose stack. Enrollment requires being on the home network, so each device is set up once at home, then works from anywhere.</p>
+
+  <h2>Why bother</h2>
+  <p>Mostly because the alternative was a capable device going to landfill. A cancelled product doesn't have to mean a bricked one — opening up ADB is a small change that turns "discontinued" into "platform." If you have a Portal in a drawer, it's a more useful device than its end-of-life suggested. The code is <a href="https://github.com/Ishtiaqhossain/portal-security-camera">on GitHub</a>; point it at your own and change what you want.</p>
+
+  <hr />
+  <p class="byline" style="border:none; padding:0; margin:0;">Built on a Portal Go · <a href="https://github.com/Ishtiaqhossain/portal-security-camera">source on GitHub</a></p>
+
+</article>
+</body>
+</html>
