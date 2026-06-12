@@ -2,7 +2,6 @@ package com.meta.portal.security
 
 import android.Manifest
 import android.app.Activity
-import android.app.KeyguardManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -12,6 +11,7 @@ import android.os.Bundle
 import android.os.IBinder
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
@@ -106,10 +106,15 @@ class MainActivity : ComponentActivity() {
 
     private var service by mutableStateOf<CameraAgentService?>(null)
 
-    /** True once the user has confirmed the device PIN this foreground session. */
-    private var unlocked by mutableStateOf(false)
-    /** Set while the system credential screen is up, so onStart/onStop don't fight it. */
-    private var authInProgress = false
+    /** False on first run, until the owner creates a PIN. Set in onCreate. */
+    private var pinSet by mutableStateOf(true)
+
+    /**
+     * When the owner last entered the PIN. Gated actions within [PIN_GRACE_MS]
+     * skip the prompt so a flurry of actions needs only one entry. Cleared on
+     * background (onStop), so returning to the app always re-authenticates.
+     */
+    private var lastAuthMs = 0L
 
     private val connection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
@@ -122,26 +127,21 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.RequestMultiplePermissions()
     ) { /* user can re-Arm if denied */ }
 
-    private val credentialLauncher = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        authInProgress = false
-        if (result.resultCode == Activity.RESULT_OK) {
-            unlocked = true
-            requestPermissions()
-        }
-        // On cancel/failure we stay locked; the lock screen offers a retry.
-    }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // Always-on camera: keep the screen awake so the Portal's inactivity
-        // timeout / screensaver never backgrounds us and drops camera + stream.
+        // Keep the screen awake so the Portal's inactivity timeout / screensaver
+        // doesn't background us. If something does background the app, onStop
+        // fails safe to Disarmed rather than leaving a frozen, un-resumable feed.
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        pinSet = PinManager.isPinSet(this)
         setContent {
             PortalSecurityTheme {
                 Surface(modifier = Modifier.fillMaxSize(), color = Bg) {
-                    if (unlocked) {
+                    if (!pinSet) {
+                        // First run: owner creates the security PIN.
+                        PinSetupScreen(onDone = { pinSet = true; requestPermissions() })
+                    } else {
+                        // Dashboard opens freely; the PIN gates individual actions.
                         AppRoot(
                             service = service,
                             onArm = { cfg -> Config.save(this, cfg); CameraAgentService.start(this) },
@@ -150,9 +150,9 @@ class MainActivity : ComponentActivity() {
                                 Config.save(this, cfg)
                                 if (service?.state?.value?.running == true) CameraAgentService.restart(this)
                             },
+                            graceActive = { System.currentTimeMillis() - lastAuthMs < PIN_GRACE_MS },
+                            onAuthed = { lastAuthMs = System.currentTimeMillis() },
                         )
-                    } else {
-                        LockScreen(onUnlock = { promptForCredential() })
                     }
                 }
             }
@@ -162,42 +162,16 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         bindService(Intent(this, CameraAgentService::class.java), connection, Context.BIND_AUTO_CREATE)
-        if (!unlocked && !authInProgress) promptForCredential()
+        if (PinManager.isPinSet(this)) requestPermissions()
     }
 
     override fun onStop() {
         super.onStop()
+        // Leaving the foreground == disarming: stop the camera so we never leave
+        // a frozen, un-resumable stream behind.
+        if (service?.state?.value?.running == true) CameraAgentService.stop(this)
         try { unbindService(connection) } catch (_: Exception) {}
-        // Re-lock when the app actually leaves the foreground (not when the
-        // system PIN screen is what backgrounded us). Next onStart re-prompts.
-        if (!authInProgress) unlocked = false
-    }
-
-    /**
-     * Gate access behind the Portal's own PIN/pattern/password by launching the
-     * system "confirm device credential" screen. If no device lock is set there
-     * is nothing to confirm against, so we let the user through.
-     */
-    private fun promptForCredential() {
-        if (unlocked || authInProgress) return
-        val keyguard = getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
-        if (keyguard == null || !keyguard.isDeviceSecure) {
-            unlocked = true
-            requestPermissions()
-            return
-        }
-        @Suppress("DEPRECATION")
-        val intent = keyguard.createConfirmDeviceCredentialIntent(
-            "Portal Security",
-            "Enter your PIN to access the camera",
-        )
-        if (intent == null) {
-            unlocked = true
-            requestPermissions()
-        } else {
-            authInProgress = true
-            credentialLauncher.launch(intent)
-        }
+        lastAuthMs = 0L // expire the PIN grace window on background
     }
 
     private fun requestPermissions() {
@@ -209,6 +183,9 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+/** How long a correct PIN unlocks gated actions before they prompt again. */
+private const val PIN_GRACE_MS = 60_000L
+
 private enum class Screen { HOME, SETTINGS, MANAGE }
 
 @Composable
@@ -217,63 +194,68 @@ private fun AppRoot(
     onArm: (Config) -> Unit,
     onDisarm: () -> Unit,
     onApply: (Config) -> Unit,
+    graceActive: () -> Boolean,
+    onAuthed: () -> Unit,
 ) {
     val context = LocalContext.current
     var screen by remember { mutableStateOf(Screen.HOME) }
     var config by remember { mutableStateOf(Config.load(context)) }
     val state by (service?.state?.collectAsState() ?: remember { mutableStateOf(CameraAgentService.AgentState()) })
 
-    when (screen) {
-        Screen.HOME -> HomeScreen(
-            state = state,
-            config = config,
-            onOpenSettings = { screen = Screen.SETTINGS },
-            onOpenManage = { screen = Screen.MANAGE },
-            onArm = { onArm(config) },
-            onDisarm = onDisarm,
-            onModeChange = { m -> val c = config.copy(mode = m); config = c; onApply(c) },
-        )
-        Screen.SETTINGS -> SettingsScreen(
-            initial = config,
-            onBack = { screen = Screen.HOME },
-            onSave = { c -> config = c; onApply(c); screen = Screen.HOME },
-        )
-        Screen.MANAGE -> ManageAccessScreen(
-            config = config,
-            onBack = { screen = Screen.HOME },
-        )
+    // A sensitive action waiting on the PIN: its prompt title + what to run.
+    // Within the grace window after a correct PIN, skip the prompt entirely.
+    var pending by remember { mutableStateOf<GatedAction?>(null) }
+    fun gate(title: String, action: () -> Unit) {
+        if (graceActive()) action() else pending = GatedAction(title, action)
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        when (screen) {
+            Screen.HOME -> {
+                // Back from the dashboard would exit (and disarm). Only gate it
+                // while armed; when disarmed, let back exit normally (no prompt).
+                BackHandler(enabled = state.running) {
+                    gate("Enter PIN to exit") { (context as? Activity)?.finish() }
+                }
+                HomeScreen(
+                    state = state,
+                    config = config,
+                    onOpenSettings = { gate("Open Settings") { screen = Screen.SETTINGS } },
+                    onOpenManage = { gate("Open Viewers") { screen = Screen.MANAGE } },
+                    onArm = { gate("Enter PIN to arm") { onArm(config) } },
+                    onDisarm = { gate("Enter PIN to disarm") { onDisarm() } },
+                    onModeChange = { m -> val c = config.copy(mode = m); config = c; onApply(c) },
+                )
+            }
+            Screen.SETTINGS -> {
+                BackHandler { screen = Screen.HOME }
+                SettingsScreen(
+                    initial = config,
+                    onBack = { screen = Screen.HOME },
+                    onSave = { c -> config = c; onApply(c); screen = Screen.HOME },
+                )
+            }
+            Screen.MANAGE -> {
+                BackHandler { screen = Screen.HOME }
+                ManageAccessScreen(
+                    config = config,
+                    onBack = { screen = Screen.HOME },
+                )
+            }
+        }
+
+        pending?.let { p ->
+            PinPrompt(
+                title = p.title,
+                onSuccess = { onAuthed(); val run = p.action; pending = null; run() },
+                onCancel = { pending = null },
+            )
+        }
     }
 }
 
-// ---------------------------------------------------------------------------
-// Lock screen — gates the app behind the device PIN
-// ---------------------------------------------------------------------------
-
-@Composable
-private fun LockScreen(onUnlock: () -> Unit) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(top = Space.screenTop, start = Space.screenH, end = Space.screenH, bottom = Space.screenBottom),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        StatusHalo(color = Primary, breathing = true, intense = false, modifier = Modifier.size(180.dp))
-        Spacer(Modifier.height(Space.xl))
-        Text("Portal Security", color = TextColor, style = Type.display)
-        Spacer(Modifier.height(Space.sm))
-        Text(
-            "Locked — confirm your device PIN to continue.",
-            color = TextDim, style = Type.body,
-        )
-        Spacer(Modifier.height(Space.xl))
-        Button(
-            onClick = onUnlock,
-            shape = Radius.button,
-            modifier = Modifier.width(240.dp).height(Touch.action),
-        ) { Text("Unlock", style = Type.titleSmall) }
-    }
-}
+/** A sensitive action deferred behind the PIN prompt. */
+private data class GatedAction(val title: String, val action: () -> Unit)
 
 // ---------------------------------------------------------------------------
 // Home dashboard
@@ -337,22 +319,17 @@ private fun HomeScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(top = Space.screenTop, start = Space.screenH, end = Space.screenH, bottom = Space.screenBottom),
+            .padding(top = Space.screenTop, start = Space.screenH, end = Space.screenH, bottom = Space.xxl),
     ) {
-        AppHeader(title = "Portal Security") {
-            Row(horizontalArrangement = Arrangement.spacedBy(Space.md)) {
-                OutlinedButton(onClick = onOpenManage) { Text("Viewers") }
-                OutlinedButton(onClick = onOpenSettings) { Text("Settings") }
-            }
-        }
+        AppHeader(title = "Portal Security")
         Spacer(Modifier.height(Space.lg))
 
         Row(
             modifier = Modifier.fillMaxSize(),
             horizontalArrangement = Arrangement.spacedBy(Space.xxl, Alignment.CenterHorizontally),
         ) {
-            // ---- Status hero -------------------------------------------------
-            Column(
+            // ---- Status hero (centered) + footer nav (bottom) ----------------
+            Box(
                 modifier = Modifier
                     .width(360.dp)
                     .fillMaxHeight()
@@ -369,34 +346,54 @@ private fun HomeScreen(
                             center = center,
                         )
                     },
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
             ) {
-                StatusHalo(
-                    color = statusColor,
-                    breathing = state.running && state.online,
-                    intense = live,
-                    modifier = Modifier.size(224.dp),
-                )
-                Spacer(Modifier.height(Space.lg))
-                Text(statusTitle, color = statusColor, style = Type.heroStatus)
-                Spacer(Modifier.height(Space.sm))
-                Text(
-                    statusSubtitle, color = TextDim, style = Type.body,
-                    textAlign = TextAlign.Center,
-                )
-                Spacer(Modifier.height(Space.lg))
-                ConnectionStatus(online = state.online, running = state.running)
-                if (state.running) {
+                Column(
+                    modifier = Modifier.align(Alignment.Center),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    StatusHalo(
+                        color = statusColor,
+                        breathing = state.running && state.online,
+                        intense = live,
+                        modifier = Modifier.size(224.dp),
+                    )
                     Spacer(Modifier.height(Space.lg))
-                    PresenceRow(viewerCount = state.viewerCount)
-                    if (state.armedSinceMs > 0) {
-                        Spacer(Modifier.height(Space.md))
-                        Text(
-                            "Armed " + uptime(state.armedSinceMs, now),
-                            color = TextFaint, style = Type.caption,
-                        )
+                    Text(statusTitle, color = statusColor, style = Type.heroStatus)
+                    Spacer(Modifier.height(Space.sm))
+                    Text(
+                        statusSubtitle, color = TextDim, style = Type.body,
+                        textAlign = TextAlign.Center,
+                    )
+                    Spacer(Modifier.height(Space.lg))
+                    ConnectionStatus(online = state.online, running = state.running)
+                    if (state.running) {
+                        Spacer(Modifier.height(Space.lg))
+                        PresenceRow(viewerCount = state.viewerCount)
+                        if (state.armedSinceMs > 0) {
+                            Spacer(Modifier.height(Space.md))
+                            Text(
+                                "Armed " + uptime(state.armedSinceMs, now),
+                                color = TextFaint, style = Type.caption,
+                            )
+                        }
                     }
+                }
+
+                // Footer nav — balances the Arm button on the opposite baseline.
+                Row(
+                    modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(Space.md),
+                ) {
+                    OutlinedButton(
+                        onClick = onOpenManage,
+                        shape = Radius.button,
+                        modifier = Modifier.weight(1f).height(Touch.min),
+                    ) { Text("Viewers", style = Type.bodyStrong) }
+                    OutlinedButton(
+                        onClick = onOpenSettings,
+                        shape = Radius.button,
+                        modifier = Modifier.weight(1f).height(Touch.min),
+                    ) { Text("Settings", style = Type.bodyStrong) }
                 }
             }
 
@@ -428,7 +425,7 @@ private fun HomeScreen(
  * perfectly still when disarmed. Honest state, expressed as motion.
  */
 @Composable
-private fun StatusHalo(color: Color, breathing: Boolean, intense: Boolean, modifier: Modifier = Modifier) {
+fun StatusHalo(color: Color, breathing: Boolean, intense: Boolean, modifier: Modifier = Modifier) {
     val transition = rememberInfiniteTransition(label = "halo")
     val ping by transition.animateFloat(
         initialValue = 0f, targetValue = 1f,
@@ -789,7 +786,7 @@ private fun SettingsScreen(
 // ---------------------------------------------------------------------------
 
 @Composable
-private fun AppHeader(title: String, trailing: @Composable () -> Unit) {
+private fun AppHeader(title: String, trailing: @Composable () -> Unit = {}) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         ShieldStatus(color = Primary, modifier = Modifier.size(26.dp))
         Spacer(Modifier.width(Space.md))
@@ -867,7 +864,7 @@ private fun SegmentedControl(
 
 /** A drawn security shield with a checkmark, tinted to the current status color. */
 @Composable
-private fun ShieldStatus(color: Color, modifier: Modifier = Modifier) {
+fun ShieldStatus(color: Color, modifier: Modifier = Modifier) {
     Canvas(modifier = modifier) {
         val w = size.width
         val h = size.height

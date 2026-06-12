@@ -57,7 +57,14 @@ docker compose up -d --build
     by **signing a server nonce** (challenge-response). Shared `CAMERA_TOKEN` is
     now only a provisioning bootstrap + simulator fallback (`ALLOW_CAMERA_TOKEN`).
   - Admin-login rate-limit/lockout, security headers, per-socket error boundary;
-    media DTLS-SRTP encrypted; device-PIN gate + LIVE badge on the app.
+    media DTLS-SRTP encrypted; LIVE badge on the app.
+  - **App PIN:** owner sets a 4-digit PIN on first run (PBKDF2-salted in
+    `PinManager`, failure lockout). The dashboard opens freely; the PIN gates
+    **individual sensitive actions** — Arm, Disarm, open Viewers, open Settings,
+    and back-to-exit **while armed** — via a modal `PinPrompt` overlay (`PinScreens.kt`).
+    Backgrounding the app **fails safe to Disarmed** (onStop stops the foreground
+    service) — never leaves a frozen, un-resumable feed. (Replaced the old
+    KeyguardManager device-credential gate.)
   - Legacy `VIEWER_TOKEN` is optional/local-only. Secrets in gitignored `.env`.
 
 ## Environment gotchas (this machine)
