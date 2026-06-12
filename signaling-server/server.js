@@ -155,7 +155,6 @@ async function handleApi(req, res) {
   if (url === '/auth/refresh' && method === 'POST') {
     const body = await readJsonBody(req);
     const result = body && auth.refresh(body.refreshToken);
-    console.log(`[http] /auth/refresh -> ${result ? `OK (${result.viewer.name})` : 'DENIED (revoked/expired/unknown)'}`);
     if (!result) return sendJson(res, 401, { error: 'refresh denied' });
     return sendJson(res, 200, result);
   }
@@ -220,7 +219,6 @@ async function handleApi(req, res) {
 }
 
 const httpServer = http.createServer(async (req, res) => {
-  console.log(`[http] ${req.method} ${req.url}`);
   if (req.url === '/healthz') {
     res.writeHead(200, { 'content-type': 'text/plain' });
     res.end('ok');
@@ -296,7 +294,6 @@ function notifyCameraEnrolled(viewer) {
 
 wss.on('connection', (ws, req) => {
   const peer = { ws, role: null, id: String(nextId++), ip: clientIp(req), viewer: null };
-  console.log(`[ws] connection opened from ${peer.ip}`);
 
   // Drop clients that don't authenticate promptly.
   const authTimer = setTimeout(() => {
@@ -343,12 +340,8 @@ wss.on('connection', (ws, req) => {
           let identity = null;
           if (msg.accessToken) {
             identity = auth.authenticateViewer(msg.accessToken);
-            console.log(`[ws] viewer register via accessToken (len ${msg.accessToken.length}): ${identity ? `OK (${identity.name})` : 'REJECTED'}`);
           } else if (VIEWER_TOKEN && msg.token === VIEWER_TOKEN) {
             identity = { id: 'legacy', name: 'shared-token' };
-            console.log('[ws] viewer register via legacy token: OK');
-          } else {
-            console.log(`[ws] viewer register with NO usable credentials (accessToken=${!!msg.accessToken}, token=${!!msg.token})`);
           }
           if (!identity) {
             send(ws, { type: 'error', code: 'bad_token', message: 'invalid or expired credentials' });

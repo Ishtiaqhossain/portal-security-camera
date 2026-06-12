@@ -160,7 +160,6 @@ async function connect() {
     }
     state.accessToken = accessToken;
     registerMsg = { type: 'register', role: 'viewer', accessToken };
-    console.log('got access token, opening socket to', wsUrl());
     setStatus('authenticated, connecting…');
   } else {
     if (!ui.token.value.trim()) {
@@ -174,7 +173,7 @@ async function connect() {
   const ws = new WebSocket(wsUrl());
   state.ws = ws;
 
-  ws.onopen = () => { console.log('WS open → register'); ws.send(JSON.stringify(registerMsg)); };
+  ws.onopen = () => ws.send(JSON.stringify(registerMsg));
 
   ws.onmessage = async (ev) => {
     const msg = JSON.parse(ev.data);
@@ -229,7 +228,6 @@ async function connect() {
 
   ws.onclose = (ev) => {
     teardownCall();
-    console.warn('WS closed', ev?.code, ev?.reason);
     // Only show "disconnected" + reconnect for an UNEXPECTED drop. If an error
     // handler (bad_token/revoked) or the user already cleared state.ws, leave
     // the explanatory status in place instead of clobbering it.
