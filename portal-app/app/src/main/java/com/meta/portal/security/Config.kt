@@ -36,6 +36,9 @@ data class Config(
     val motionEnabled: Boolean = false,
     val quality: VideoQuality = VideoQuality.MEDIUM,
     val startOnBoot: Boolean = false,
+    // Per-device camera id, assigned by the server when this Portal provisions
+    // its public key. Blank until provisioned (then it authenticates by signing).
+    val cameraId: String = "",
 ) {
     val isValid: Boolean
         get() = serverUrl.isNotBlank() && cameraToken.isNotBlank()
@@ -73,6 +76,7 @@ data class Config(
                 motionEnabled = p.getBoolean("motionEnabled", false),
                 quality = VideoQuality.from(p.getString("quality", "720p")),
                 startOnBoot = p.getBoolean("startOnBoot", false),
+                cameraId = p.getString("cameraId", "") ?: "",
             )
         }
 
@@ -84,6 +88,7 @@ data class Config(
                 .putBoolean("motionEnabled", config.motionEnabled)
                 .putString("quality", config.quality.label)
                 .putBoolean("startOnBoot", config.startOnBoot)
+                .putString("cameraId", config.cameraId)
                 .apply()
         }
     }

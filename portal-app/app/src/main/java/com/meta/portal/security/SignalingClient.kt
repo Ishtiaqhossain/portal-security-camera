@@ -18,6 +18,10 @@ import java.util.concurrent.TimeUnit
 class SignalingClient(
     private val webSocketUrl: String,
     private val token: String,
+    // Per-device identity. When cameraId is set, the camera authenticates by
+    // signing the server's nonce; otherwise it falls back to the shared token.
+    private val cameraId: String,
+    private val identity: CameraIdentity?,
     private val listener: Listener,
 ) {
     interface Listener {
@@ -72,13 +76,26 @@ class SignalingClient(
 
     private val socketListener = object : WebSocketListener() {
         override fun onOpen(webSocket: WebSocket, response: Response) {
-            Log.i(TAG, "ws open; registering as camera")
-            send(JSONObject().put("type", "register").put("role", "camera").put("token", token))
+            val reg = JSONObject().put("type", "register").put("role", "camera")
+            if (cameraId.isNotBlank() && identity != null) {
+                Log.i(TAG, "ws open; registering as camera $cameraId (key)")
+                reg.put("cameraId", cameraId)
+            } else {
+                Log.i(TAG, "ws open; registering as camera (token)")
+                reg.put("token", token)
+            }
+            send(reg)
         }
 
         override fun onMessage(webSocket: WebSocket, text: String) {
             val msg = runCatching { JSONObject(text) }.getOrNull() ?: return
             when (msg.optString("type")) {
+                "camera-challenge" -> {
+                    // Prove possession of our private key by signing the nonce.
+                    val sig = runCatching { identity?.signNonce(msg.optString("nonce")) }.getOrNull()
+                    if (sig != null) send(JSONObject().put("type", "camera-auth").put("signature", sig))
+                    else listener.onError("no_key", "cannot sign camera challenge")
+                }
                 "welcome" -> listener.onWelcome(parseIceServers(msg.optJSONArray("iceServers")))
                 "offer" -> listener.onOffer(msg.optString("from"), msg.optString("sdp"))
                 "ice" -> {

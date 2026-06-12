@@ -82,7 +82,29 @@ class CameraAgentService : Service(), SignalingClient.Listener, WebRtcEngine.Lis
             captureH = config.quality.height,
             captureFps = config.quality.fps,
         ).also { it.setMotionEnabled(config.motionEnabled && !config.onDemand) }
-        signaling = SignalingClient(config.webSocketUrl, config.cameraToken, this).also { it.connect() }
+
+        // Provision this camera's key on first run (network call, off the main
+        // thread), then connect signaling. Until provisioned it falls back to
+        // the shared CAMERA_TOKEN, so a provisioning hiccup never blocks startup.
+        Thread {
+            val identity = CameraIdentity()
+            var cameraId = config.cameraId
+            if (cameraId.isBlank()) {
+                cameraId = runCatching {
+                    val id = CameraApi(config.httpBaseUrl, config.cameraToken)
+                        .provision(Build.MODEL ?: "Portal", identity.publicKeyBase64())
+                    Config.save(this, Config.load(this).copy(cameraId = id))
+                    Log.i(TAG, "camera provisioned: $id")
+                    id
+                }.getOrElse {
+                    Log.w(TAG, "camera provision failed, using token fallback: ${it.message}")
+                    ""
+                }
+            }
+            signaling = SignalingClient(config.webSocketUrl, config.cameraToken, cameraId, identity, this)
+                .also { it.connect() }
+        }.start()
+
         _state.value = _state.value.copy(
             running = true,
             onDemand = config.onDemand,
@@ -175,7 +197,7 @@ class CameraAgentService : Service(), SignalingClient.Listener, WebRtcEngine.Lis
         // SignalingClient/OkHttp doesn't auto-reconnect; do a simple retry.
         signaling?.let {
             val config = Config.load(this)
-            signaling = SignalingClient(config.webSocketUrl, config.cameraToken, this)
+            signaling = SignalingClient(config.webSocketUrl, config.cameraToken, config.cameraId, CameraIdentity(), this)
             android.os.Handler(mainLooper).postDelayed({ signaling?.connect() }, 3000)
         }
     }

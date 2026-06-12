@@ -25,6 +25,18 @@ class CameraApi(private val baseUrl: String, private val cameraToken: String) {
     private fun authed(builder: Request.Builder) =
         builder.header("Authorization", "Bearer $cameraToken")
 
+    /** Register this camera's public key (bootstrap via CAMERA_TOKEN). Returns cameraId. */
+    fun provision(name: String, publicKeyB64: String): String {
+        val body = JSONObject().put("name", name).put("publicKey", publicKeyB64)
+            .toString().toRequestBody(jsonType)
+        val req = authed(Request.Builder().url("$baseUrl/camera/provision").post(body)).build()
+        client.newCall(req).execute().use { res ->
+            val text = res.body?.string().orEmpty()
+            if (!res.isSuccessful) error("provision failed: ${res.code} $text")
+            return JSONObject(text).getString("id")
+        }
+    }
+
     /** Mint an enrollment ticket and return the full URL to encode in the QR. */
     fun startEnroll(name: String): String {
         val body = JSONObject().put("name", name).toString().toRequestBody(jsonType)
