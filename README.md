@@ -35,7 +35,7 @@ Features:
 |--------------------|----------------------------------------------------------------------------|
 | `portal-app/`      | Android (Kotlin/Compose) app on the Portal — camera agent, status dashboard, and the Viewers/QR enrollment screen. |
 | `signaling-server/`| Node.js broker: SDP/ICE relay, motion + Web Push, per-viewer auth + enrollment, per-device camera identity, and serves the web client. |
-| `web-client/`      | Browser viewer (`index.html`), invite/enroll page (`enroll.html`), admin console (`admin.html`), and a webcam camera simulator for testing without the device. |
+| `web-client/`      | Browser viewer (`index.html`), invite/enroll page (`enroll.html`), and admin console (`admin.html`). (`camera-sim.html` is a webcam-based reference implementation of the camera protocol.) |
 | `deploy/`          | docker-compose stack (Caddy auto-HTTPS + signaling + coturn TURN) for real remote access. |
 
 ## Why a server at all, if it's "peer-to-peer"?
@@ -68,30 +68,49 @@ project treats that seriously (full threat model in **`SECURITY.md`**):
   (and basic decency), **inform everyone in the household** the camera is viewable.
 - Secrets live in gitignored `.env` files — never committed.
 
-## Quick start (test without a Portal, in your browser)
+## Quick start
 
-```bash
-cd signaling-server
-cp .env.example .env   # set CAMERA_TOKEN + JWT_SECRET + ADMIN_PASSWORD
-                       # (openssl rand -hex 32). For a no-friction local viewer,
-                       # also set VIEWER_TOKEN to enable the legacy token field.
-npm install
-npm start              # serves the web client too, on http://localhost:8080
+You'll need a **Meta Portal**, a small **VPS** (for remote access over HTTPS),
+and a phone or browser to watch from.
 
-node test-signaling.mjs && node test-enroll.mjs && node test-camera-key.mjs   # test suites
-```
+1. **Deploy the server.** Full walkthrough in
+   [`deploy/RUNBOOK-duckdns.md`](deploy/RUNBOOK-duckdns.md) — a docker-compose
+   stack with Caddy auto-HTTPS + TURN, on a free DuckDNS hostname. In short:
+   ```bash
+   cd deploy
+   cp .env.example .env           # set DOMAIN + secrets (openssl rand -hex 32)
+   docker compose up -d --build
+   ```
 
-Then:
+2. **Install the app on the Portal.** Build `portal-app/` (see
+   [`portal-app/README.md`](portal-app/README.md)) and install the APK. In
+   **Settings**, set the **Signaling server** to `wss://<your-domain>`. On the
+   first **Arm**, the Portal provisions its own camera key — there's no token to
+   type.
 
-- **Camera simulator** → http://localhost:8080/camera-sim.html (uses your laptop
-  webcam; registers via the legacy `CAMERA_TOKEN`).
-- **Viewer** → http://localhost:8080/ — needs an enrolled device. Either set
-  `VIEWER_TOKEN` (legacy field appears), or mint an enroll link from the
-  **admin console** (http://localhost:8080/admin.html) and open it in one window.
+3. **Add a viewer.** On the Portal, open **Viewers → Show QR code** and scan it
+   from a phone or browser **on the same Wi-Fi**. That device gets a revocable,
+   device-bound login and can then watch from anywhere.
 
-Once that works, build and deploy the real Portal app (`portal-app/`) — it
-replaces the simulator with the actual Portal, which provisions its own camera
-key and shows a **QR on its Viewers screen** to enroll your phone/laptop.
+4. **Watch.** Open `https://<your-domain>/` in the browser on the enrolled
+   device.
 
-See `portal-app/README.md` for Android build/deploy, `SECURITY.md` for the
-security model, and `AGENTS.md` for the protocol + Portal conventions.
+Manage viewers and cameras anytime from the Portal's **Viewers** screen or the
+admin console at `https://<your-domain>/admin.html`.
+
+> **Contributing / running the server tests:** `cd signaling-server && npm install`,
+> then with the server running: `node test-signaling.mjs && node test-enroll.mjs
+> && node test-camera-key.mjs && node test-push.mjs`.
+
+See [`portal-app/README.md`](portal-app/README.md) for Android build/deploy,
+[`SECURITY.md`](SECURITY.md) for the security model, and
+[`AGENTS.md`](AGENTS.md) for the protocol + Portal conventions.
+
+## License & disclaimer
+
+MIT — see [`LICENSE`](LICENSE). The bundled Inter font is under the SIL Open Font
+License ([`portal-app/licenses/`](portal-app/licenses/)).
+
+This is an independent hobby project, **not affiliated with, endorsed by, or
+sponsored by Meta**. "Meta" and "Portal" are trademarks of Meta Platforms, Inc.,
+used here only to describe the hardware this software runs on.

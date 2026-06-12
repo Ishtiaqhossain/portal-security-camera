@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -23,10 +25,16 @@ android {
     buildTypes {
         debug {
             // Local convenience: pre-fill the signaling server so a fresh debug
-            // install is ready to Arm without retyping it every time. Override
-            // with -PportalServerUrl=wss://your-host. Release builds get "".
+            // install is ready to Arm without retyping the URL. Set it in the
+            // gitignored local.properties (portal.serverUrl=wss://your-host) or
+            // pass -PportalServerUrl=… — never committed. Defaults to empty.
+            val localProps = Properties().apply {
+                val f = rootProject.file("local.properties")
+                if (f.exists()) f.inputStream().use { load(it) }
+            }
             val devServer = (project.findProperty("portalServerUrl") as String?)
-                ?: "wss://your-portal.example.com"
+                ?: localProps.getProperty("portal.serverUrl")
+                ?: ""
             buildConfigField("String", "DEFAULT_SERVER_URL", "\"$devServer\"")
         }
         release {
