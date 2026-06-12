@@ -34,6 +34,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.meta.portal.security.ui.theme.Danger
 import com.meta.portal.security.ui.theme.Ok
@@ -61,8 +62,16 @@ import java.util.Locale
  */
 @Composable
 fun ManageAccessScreen(config: Config, onBack: () -> Unit) {
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val api = remember { CameraApi(config.httpBaseUrl, config.cameraToken, config.cameraId, CameraIdentity()) }
+    // Reload from prefs: the agent writes cameraId after it provisions on first
+    // Arm, which can happen after this screen's parent loaded its Config. Using
+    // the stale (blank) cameraId would leave the signed enroll request
+    // unauthenticated (401) and QR creation would fail.
+    val api = remember {
+        val current = Config.load(context)
+        CameraApi(current.httpBaseUrl, current.cameraToken, current.cameraId, CameraIdentity())
+    }
 
     var viewers by remember { mutableStateOf<List<CameraApi.Viewer>>(emptyList()) }
     var name by remember { mutableStateOf("") }
