@@ -48,7 +48,7 @@
     <!-- Live view (shown after connecting). -->
     <section id="view" class="hidden">
       <div class="video-wrap">
-        <video id="remote" autoplay playsinline></video>
+        <video id="remote" autoplay playsinline muted></video>
         <div id="video-overlay" class="video-overlay">
           <div class="spinner"></div>
           <p id="overlay-text">Connecting to camera…</p>
@@ -57,7 +57,7 @@
       </div>
       <div class="controls">
         <button id="mic-btn" aria-pressed="false" disabled>🎙 Talk</button>
-        <button id="mute-audio-btn" aria-pressed="false">🔇 Mute camera</button>
+        <button id="mute-audio-btn" aria-pressed="true">🔈 Unmute camera</button>
         <button id="fullscreen-btn">⛶ Fullscreen</button>
         <button id="notify-btn">🔔 Enable alerts</button>
         <span class="spacer"></span>
