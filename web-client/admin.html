@@ -66,6 +66,17 @@
       </div>
 
       <div class="panel">
+        <h2>Cameras</h2>
+        <p class="status" style="margin-top:-6px;">Revoking a camera disconnects it and frees its slot, so a
+          replacement or reset Portal can claim the system on its next Arm.</p>
+        <table>
+          <thead><tr><th>Name</th><th>Status</th><th>Last seen</th><th></th></tr></thead>
+          <tbody id="cameras-body"></tbody>
+        </table>
+        <p class="status" id="cameras-empty">No cameras enrolled yet.</p>
+      </div>
+
+      <div class="panel">
         <h2>Activity log</h2>
         <div class="audit" id="audit"></div>
       </div>

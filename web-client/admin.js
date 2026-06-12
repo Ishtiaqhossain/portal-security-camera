@@ -38,7 +38,7 @@ async function showDashboard() {
   $('login-card').classList.add('hidden');
   $('dashboard').classList.remove('hidden');
   $('logout').classList.remove('hidden');
-  await Promise.all([loadViewers(), loadAudit()]);
+  await Promise.all([loadViewers(), loadCameras(), loadAudit()]);
 }
 
 // --- Viewers ----------------------------------------------------------------
@@ -75,6 +75,44 @@ async function loadViewers() {
 async function setRevoked(id, revoked) {
   await api(revoked ? '/admin/revoke' : '/admin/enable', 'POST', { id });
   await Promise.all([loadViewers(), loadAudit()]);
+}
+
+// --- Cameras ----------------------------------------------------------------
+
+async function loadCameras() {
+  const res = await api('/admin/cameras');
+  if (res.status === 401) { logout(); return; }
+  const { cameras } = await res.json();
+  const body = $('cameras-body');
+  body.innerHTML = '';
+  $('cameras-empty').style.display = cameras.length ? 'none' : 'block';
+  for (const c of cameras) {
+    const tr = document.createElement('tr');
+    const seen = c.lastSeenAt ? new Date(c.lastSeenAt).toLocaleString() : '—';
+    tr.innerHTML = `
+      <td>${escapeHtml(c.name)}</td>
+      <td><span class="pill ${c.revoked ? 'revoked' : 'active'}">${c.revoked ? 'Revoked' : 'Active'}</span></td>
+      <td>${seen}</td>
+      <td class="row-actions"></td>`;
+    const btn = document.createElement('button');
+    if (c.revoked) {
+      btn.textContent = 'Re-enable';
+      btn.onclick = () => setCameraRevoked(c.id, false);
+    } else {
+      btn.textContent = 'Revoke';
+      btn.className = 'danger';
+      btn.onclick = () => setCameraRevoked(c.id, true);
+    }
+    tr.querySelector('.row-actions').appendChild(btn);
+    body.appendChild(tr);
+  }
+}
+
+async function setCameraRevoked(id, revoked) {
+  // Revoking disconnects the live camera, so confirm first; re-enabling is safe.
+  if (revoked && !confirm('Revoke this camera? It will be disconnected, and a reset or replacement Portal can then claim the system on its next Arm.')) return;
+  await api(revoked ? '/admin/camera-revoke' : '/admin/camera-enable', 'POST', { id });
+  await Promise.all([loadCameras(), loadAudit()]);
 }
 
 // --- Invites ----------------------------------------------------------------
