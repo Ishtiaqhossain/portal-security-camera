@@ -83,7 +83,7 @@ fun PinSetupScreen(onDone: () -> Unit) {
         subtitle = when {
             mismatch -> "PINs didn't match — let's try again"
             confirming -> "Enter the same 4 digits once more"
-            else -> "Set a 4-digit PIN to arm and unlock the camera"
+            else -> "Only someone with this PIN can arm, disarm, or change who's watching"
         },
         subtitleColor = if (mismatch) Danger else TextDim,
         filled = entered.length,

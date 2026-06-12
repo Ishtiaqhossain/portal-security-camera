@@ -171,9 +171,9 @@ class CameraAgentService : Service(), SignalingClient.Listener, WebRtcEngine.Lis
         val text = when {
             !s.running -> "Disarmed"
             !s.online -> "Connecting…"
-            s.capturing && s.viewerCount > 0 -> "Live · ${s.viewerCount} watching"
-            s.onDemand -> "Protected · Drop In standby"
-            else -> "Protected · Active streaming"
+            s.capturing && s.viewerCount > 0 -> "Live · ${s.viewerCount} watching & listening"
+            s.onDemand -> "Protected · Drop In (camera off until viewed)"
+            else -> "Protected · camera & mic on"
         }
         _state.value = s.copy(statusText = text)
         if (s.running && s.online) updateNotification(text)

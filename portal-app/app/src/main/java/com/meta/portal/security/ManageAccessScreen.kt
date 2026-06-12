@@ -75,7 +75,7 @@ fun ManageAccessScreen(config: Config, onBack: () -> Unit) {
         try {
             viewers = withContext(Dispatchers.IO) { api.listViewers() }
         } catch (e: Exception) {
-            error = "Couldn't reach the server: ${e.message}"
+            error = "Can't reach the camera server. Check your connection."
         }
     }
 
@@ -112,7 +112,7 @@ fun ManageAccessScreen(config: Config, onBack: () -> Unit) {
                                     val url = withContext(Dispatchers.IO) { api.startEnroll(name.ifBlank { "New device" }) }
                                     qr = QrGen.encode(url, 640).asImageBitmap()
                                 } catch (e: Exception) {
-                                    error = "Couldn't create a code: ${e.message}"
+                                    error = "Couldn't create a code. Try again."
                                 }
                                 busy = false
                             }
@@ -134,7 +134,8 @@ fun ManageAccessScreen(config: Config, onBack: () -> Unit) {
                             }
                             Spacer(Modifier.height(Space.md))
                             Text(
-                                "Scan with the viewer's phone, on the same Wi-Fi. Valid ~2 minutes, one device.",
+                                "Scan on the same Wi-Fi as the camera (a one-time security check). " +
+                                    "Grants that one device ongoing access — revoke it anytime below. Code expires in ~2 min.",
                                 color = TextDim, style = Type.caption,
                             )
                         }
@@ -171,7 +172,7 @@ fun ManageAccessScreen(config: Config, onBack: () -> Unit) {
                                             withContext(Dispatchers.IO) { api.setRevoked(v.id, !v.revoked) }
                                             refresh()
                                         } catch (e: Exception) {
-                                            error = "Action failed: ${e.message}"
+                                            error = "That didn't work. Try again."
                                         }
                                     }
                                 },

@@ -293,9 +293,9 @@ private fun HomeScreen(
     val statusSubtitle = when {
         !state.running -> "Tap Arm to start protecting your space"
         !state.online -> "Reaching the server…"
-        live -> "Someone is watching right now"
+        live -> "Someone is watching and listening right now"
         mode == CameraMode.DROP_IN -> "Camera wakes only when a viewer connects"
-        else -> "Streaming quietly in the background"
+        else -> "Camera and mic stay on so motion can be detected"
     }
 
     // A gently-ticking clock so relative times ("2m ago") and uptime stay fresh
@@ -397,7 +397,7 @@ private fun HomeScreen(
                 verticalArrangement = Arrangement.spacedBy(Space.md),
             ) {
                 ModeCard(mode = mode, quality = config.quality, motionEnabled = config.motionEnabled, onModeChange = onModeChange)
-                ActivityCard(events = motionLog, now = now)
+                ActivityCard(events = motionLog, now = now, watching = mode == CameraMode.ACTIVE && config.motionEnabled)
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.md)) {
                     OutlinedButton(
                         onClick = onOpenManage,
@@ -555,9 +555,9 @@ private fun ModeCard(
         ) { idx -> onModeChange(if (idx == 1) CameraMode.ACTIVE else CameraMode.DROP_IN) }
         Text(
             if (mode == CameraMode.DROP_IN)
-                "Camera stays off until someone views — best for privacy and power."
+                "Camera and mic stay off until someone views — best for privacy and power."
             else
-                "Camera streams continuously — enables motion alerts while you're away.",
+                "Camera and mic stay on continuously — enables motion alerts while you're away.",
             color = TextDim, style = Type.caption,
         )
         Row(horizontalArrangement = Arrangement.spacedBy(Space.md)) {
@@ -576,7 +576,7 @@ private fun MetaPill(text: String) {
 }
 
 @Composable
-private fun ColumnScope.ActivityCard(events: List<Long>, now: Long) {
+private fun ColumnScope.ActivityCard(events: List<Long>, now: Long, watching: Boolean) {
     Card(Modifier.weight(1f)) {
         Text("RECENT ACTIVITY", color = TextDim, style = Type.label)
         Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
@@ -588,9 +588,16 @@ private fun ColumnScope.ActivityCard(events: List<Long>, now: Long) {
                         drawCircle(OutlineSoft, radius = r * 0.58f, style = Stroke(1.5.dp.toPx()))
                         drawCircle(TextFaint, radius = r * 0.12f)
                     }
+                    // Be honest: only claim "no motion" when we're actually watching
+                    // for it. In Drop In (or with alerts off) nothing is monitored.
                     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(Space.xs)) {
-                        Text("No motion detected", color = TextDim, style = Type.body)
-                        Text("You're all clear", color = TextFaint, style = Type.caption)
+                        if (watching) {
+                            Text("No motion detected", color = TextDim, style = Type.body)
+                            Text("Nothing flagged recently", color = TextFaint, style = Type.caption)
+                        } else {
+                            Text("Not watching for motion", color = TextDim, style = Type.body)
+                            Text("Turn on Active mode + alerts to monitor", color = TextFaint, style = Type.caption)
+                        }
                     }
                 }
             } else {
@@ -628,7 +635,7 @@ private fun ArmButton(running: Boolean, canArm: Boolean, onArm: () -> Unit, onDi
         if (!canArm) {
             Spacer(Modifier.height(Space.sm))
             Text(
-                "Set the signaling server and camera token in Settings first.",
+                "Add the signaling server and camera key in Settings first.",
                 color = Amber, style = Type.caption,
             )
         }
@@ -645,7 +652,7 @@ private fun ArmButton(running: Boolean, canArm: Boolean, onArm: () -> Unit, onDi
         ),
         shape = Radius.button,
         modifier = Modifier.fillMaxWidth().height(Touch.action),
-    ) { Text(if (confirm) "Tap again to disarm" else "Disarm", style = Type.titleSmall) }
+    ) { Text(if (confirm) "Tap again to stop protecting" else "Disarm", style = Type.titleSmall) }
 }
 
 /** Shared rounded surface card with consistent padding & rhythm. */
@@ -718,7 +725,7 @@ private fun SettingsScreen(
                         )
                         OutlinedTextField(
                             value = token, onValueChange = { token = it },
-                            label = { Text("Camera token") }, singleLine = true,
+                            label = { Text("Camera key (keep private)") }, singleLine = true,
                             visualTransformation = PasswordVisualTransformation(),
                             modifier = Modifier.fillMaxWidth(),
                         )
@@ -740,9 +747,9 @@ private fun SettingsScreen(
                         ) { idx -> mode = if (idx == 1) CameraMode.ACTIVE else CameraMode.DROP_IN }
                         Text(
                             if (mode == CameraMode.DROP_IN)
-                                "Drop In — camera activates only when a viewer connects."
+                                "Drop In — camera and mic activate only when a viewer connects."
                             else
-                                "Active — camera streams continuously in the background.",
+                                "Active — camera and mic stay on continuously in the background.",
                             color = TextDim, style = Type.caption,
                         )
                     }

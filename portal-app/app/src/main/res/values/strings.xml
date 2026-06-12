@@ -1,7 +1,7 @@
 <resources>
     <string name="app_name">Portal Security</string>
-    <string name="channel_name">Camera agent</string>
-    <string name="channel_desc">Keeps the security camera streaming.</string>
-    <string name="notif_title">Portal Security — LIVE</string>
-    <string name="notif_text">Camera is active and remotely viewable.</string>
+    <string name="channel_name">Camera status</string>
+    <string name="channel_desc">Shows when the camera and microphone are active.</string>
+    <string name="notif_title">Portal Security — On air</string>
+    <string name="notif_text">Camera and microphone are on and can be viewed and heard remotely.</string>
 </resources>
