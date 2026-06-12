@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -348,7 +349,7 @@ private fun HomeScreen(
                     },
             ) {
                 Column(
-                    modifier = Modifier.align(Alignment.Center),
+                    modifier = Modifier.align(Alignment.Center).offset(y = -(36).dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     StatusHalo(
@@ -379,7 +380,8 @@ private fun HomeScreen(
                     }
                 }
 
-                // Primary action, anchored under the status hero.
+                // Primary action, anchored at the bottom — level with the
+                // Viewers/Settings buttons in the controls column.
                 Column(modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()) {
                     ArmButton(
                         running = state.running,
@@ -720,10 +722,6 @@ private fun SettingsScreen(
                             value = serverUrl, onValueChange = { serverUrl = it },
                             label = { Text("Signaling server (wss://…)") }, singleLine = true,
                             modifier = Modifier.fillMaxWidth(),
-                        )
-                        Text(
-                            "This Portal sets up its own secure key on first arm — no token to enter.",
-                            color = TextDim, style = Type.caption,
                         )
                     }
                     SectionCard("Camera") {
