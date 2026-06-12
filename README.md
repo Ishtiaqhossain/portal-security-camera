@@ -29,6 +29,19 @@ Features:
                                                         └────────────┘
 ```
 
+## Screenshots
+
+<table>
+  <tr>
+    <td width="50%"><img src="assets/screenshots/app-dashboard.png" alt="On-device dashboard — armed, Active mode, motion events"><br><sub><b>On-device dashboard</b> — armed (Active mode), recent motion, no live feed shown on the Portal.</sub></td>
+    <td width="50%"><img src="assets/screenshots/web-viewer.jpg" alt="Browser viewer — live feed with motion alert"><br><sub><b>Browser viewer</b> — live feed, two-way audio, and a motion alert. <sub>(feed blurred for privacy)</sub></sub></td>
+  </tr>
+  <tr>
+    <td><img src="assets/screenshots/app-qr.png" alt="QR viewer enrollment and revocation"><br><sub><b>Viewer enrollment</b> — show a single-use QR, then manage/revoke enrolled devices.</sub></td>
+    <td><img src="assets/screenshots/app-settings.png" alt="App settings — signaling server"><br><sub><b>Settings</b> — point the Portal at your signaling server; it provisions its own key.</sub></td>
+  </tr>
+</table>
+
 ## Components
 
 | Directory          | What it is                                                                 |
