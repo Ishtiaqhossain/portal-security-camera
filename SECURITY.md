@@ -52,14 +52,24 @@ residual risks.
 | Stranger self-enrolls remotely | Enrollment is device-initiated + same-network; no inbound request endpoint | Needs the on-screen QR + same Wi-Fi |
 | XSS stealing tokens | No third-party scripts; refresh token in localStorage | An XSS bug would expose the refresh token (revocable) |
 
+## Camera identity & abuse hardening (in place)
+
+- **Per-device camera identity.** Each Portal holds a non-exportable **EC P-256
+  private key** (Android Keystore) and authenticates by **signing a server nonce**
+  (challenge-response). The server stores only the **public key** — a server
+  breach can't impersonate a camera, there's no shared token to leak, and each
+  camera is individually **revocable**. The shared `CAMERA_TOKEN` is now only a
+  one-time provisioning bootstrap + simulator fallback (disable in production with
+  `ALLOW_CAMERA_TOKEN=false`). This closes the old camera-spoofing gap.
+- **Rate-limiting / lockout.** Admin login locks out after repeated failures (per
+  IP, audited); enrollment is throttled.
+- **Security headers** on every HTTP response: `nosniff`, `Referrer-Policy:
+  no-referrer`, `X-Frame-Options: DENY` + CSP `frame-ancestors 'none'`, HSTS.
+- **Crash isolation.** A WebSocket handler error closes only that socket.
+
 ## Known gaps / roadmap
 
-- **Camera spoofing.** A leaked `CAMERA_TOKEN` lets an attacker register as the
-  camera (the server replaces the existing camera on connect), kicking the real
-  Portal offline and feeding viewers a fake stream. Planned: per-device signed
-  camera identity instead of a shared token.
-- **Admin 2FA / rate-limiting.** Admin login has no lockout yet. Planned: rate
-  limit + optional TOTP.
+- **Admin 2FA.** Login is rate-limited but still single-factor. Planned: optional TOTP.
 - **QR capture / first-scanner-wins.** Someone who photographs the on-screen QR
   (and is on the same Wi-Fi) within its ~2-min window could enroll their device.
   Mitigated by short expiry + single-use + same-network; backstop is the

@@ -38,7 +38,7 @@ const tickets = new Map(); // token -> { name, ip, expiresAt }
 
 let secret = '';
 let adminPassword = '';
-let db = { viewers: [], invites: [] };
+let db = { viewers: [], invites: [], cameras: [] };
 let audit = [];
 
 export function initAuth() {
@@ -190,6 +190,69 @@ function publicViewer(v) {
   return { id: v.id, name: v.name, createdAt: v.createdAt, lastSeenAt: v.lastSeenAt, revoked: v.revoked };
 }
 
+// --- Camera identity (per-device EC keypair) --------------------------------
+//
+// Each physical camera holds a non-exportable EC P-256 private key (Android
+// Keystore). It registers its PUBLIC key once (provisioning), then proves
+// possession by signing a server-issued nonce. The server only ever stores the
+// public key, so a server breach can't impersonate a camera, and there's no
+// shared token to leak. Per-camera revocation, replay-proof (fresh nonce each
+// connect).
+
+/** Register a camera's public key (SPKI DER, base64). Returns {id,name} or null. */
+export function provisionCamera(name, publicKeyB64) {
+  if (!publicKeyB64) return null;
+  try {
+    crypto.createPublicKey({ key: Buffer.from(publicKeyB64, 'base64'), format: 'der', type: 'spki' });
+  } catch {
+    return null; // not a usable public key
+  }
+  const cam = {
+    id: crypto.randomBytes(9).toString('base64url'),
+    name: String(name || 'Camera').slice(0, 60),
+    publicKey: publicKeyB64,
+    createdAt: Date.now(),
+    revoked: false,
+    lastSeenAt: null,
+  };
+  db.cameras.push(cam);
+  persist();
+  return { id: cam.id, name: cam.name };
+}
+
+export function getCamera(id) {
+  const c = db.cameras.find((c) => c.id === id);
+  return c ? { id: c.id, name: c.name, revoked: c.revoked } : null;
+}
+
+/** Verify a camera's signature over the nonce (both base64). Constant-time-ish. */
+export function verifyCameraSignature(id, nonceB64, signatureB64) {
+  const cam = db.cameras.find((c) => c.id === id);
+  if (!cam || cam.revoked || !nonceB64 || !signatureB64) return false;
+  try {
+    const pub = crypto.createPublicKey({ key: Buffer.from(cam.publicKey, 'base64'), format: 'der', type: 'spki' });
+    const ok = crypto.verify('sha256', Buffer.from(nonceB64, 'base64'), pub, Buffer.from(signatureB64, 'base64'));
+    if (ok) { cam.lastSeenAt = Date.now(); persist(); }
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
+export function listCameras() {
+  return db.cameras.map((c) => ({
+    id: c.id, name: c.name, createdAt: c.createdAt, lastSeenAt: c.lastSeenAt, revoked: c.revoked,
+  }));
+}
+
+export function setCameraRevoked(id, revoked) {
+  const cam = db.cameras.find((c) => c.id === id);
+  if (!cam) return null;
+  cam.revoked = revoked;
+  persist();
+  return { id: cam.id, name: cam.name, revoked: cam.revoked };
+}
+
 // --- Audit ------------------------------------------------------------------
 
 export function record(event, data) {
@@ -208,10 +271,11 @@ export function listAudit(limit = 200) {
 
 function load() {
   if (existsSync(STORE)) {
-    try { db = JSON.parse(readFileSync(STORE, 'utf8')); } catch { db = { viewers: [], invites: [] }; }
+    try { db = JSON.parse(readFileSync(STORE, 'utf8')); } catch { db = { viewers: [], invites: [], cameras: [] }; }
   }
   if (!db.viewers) db.viewers = [];
   if (!db.invites) db.invites = [];
+  if (!db.cameras) db.cameras = [];
   if (existsSync(AUDIT)) {
     try { audit = JSON.parse(readFileSync(AUDIT, 'utf8')); } catch { audit = []; }
   }
