@@ -13,8 +13,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -32,16 +32,20 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.meta.portal.security.ui.theme.Danger
 import com.meta.portal.security.ui.theme.Ok
+import com.meta.portal.security.ui.theme.OutlineSoft
 import com.meta.portal.security.ui.theme.Primary
+import com.meta.portal.security.ui.theme.Radius
+import com.meta.portal.security.ui.theme.Space
 import com.meta.portal.security.ui.theme.Surface as SurfaceColor
 import com.meta.portal.security.ui.theme.TextColor
 import com.meta.portal.security.ui.theme.TextDim
+import com.meta.portal.security.ui.theme.TextFaint
+import com.meta.portal.security.ui.theme.Type
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -52,7 +56,8 @@ import java.util.Locale
 /**
  * Manage who can view this camera. Enrollment is device-initiated: the owner
  * generates a single-use QR here, the viewer scans it on the same Wi-Fi, and
- * the device appears in the list — where it can be revoked.
+ * the device appears in the list — where it can be revoked. Two-column layout:
+ * add a viewer on the left, the enrolled list on the right.
  */
 @Composable
 fun ManageAccessScreen(config: Config, onBack: () -> Unit) {
@@ -61,7 +66,7 @@ fun ManageAccessScreen(config: Config, onBack: () -> Unit) {
 
     var viewers by remember { mutableStateOf<List<CameraApi.Viewer>>(emptyList()) }
     var name by remember { mutableStateOf("") }
-    var qr by remember { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
+    var qr by remember { mutableStateOf<ImageBitmap?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
 
@@ -80,112 +85,123 @@ fun ManageAccessScreen(config: Config, onBack: () -> Unit) {
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(top = 60.dp, start = 28.dp, end = 28.dp, bottom = 28.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+            .padding(top = Space.screenTop, start = Space.screenH, end = Space.screenH, bottom = Space.xxl),
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("MANAGE ACCESS", color = TextColor, fontSize = 22.sp, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.weight(1f))
-            OutlinedButton(onClick = onBack) { Text("Back") }
-        }
-
-        // Add a viewer: name -> QR.
-        Column(
-            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
-                .background(SurfaceColor).padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            Text("ADD A VIEWER", color = TextDim, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-            OutlinedTextField(
-                value = name, onValueChange = { name = it },
-                label = { Text("Device name (e.g. \"Mom's iPhone\")") }, singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Button(
-                onClick = {
-                    busy = true
-                    scope.launch {
-                        error = null
-                        try {
-                            val url = withContext(Dispatchers.IO) { api.startEnroll(name.ifBlank { "New device" }) }
-                            qr = QrGen.encode(url, 640).asImageBitmap()
-                        } catch (e: Exception) {
-                            error = "Couldn't create a code: ${e.message}"
-                        }
-                        busy = false
-                    }
-                },
-                enabled = !busy,
-                modifier = Modifier.fillMaxWidth().height(52.dp),
-            ) { Text(if (qr == null) "Show QR code" else "New QR code", fontWeight = FontWeight.Bold) }
-
-            qr?.let { bmp ->
-                Box(
-                    modifier = Modifier.fillMaxWidth(),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Box(
-                            modifier = Modifier.clip(RoundedCornerShape(12.dp)).background(Color.White).padding(12.dp),
-                        ) {
-                            Image(bitmap = bmp, contentDescription = "Enrollment QR", modifier = Modifier.size(260.dp))
-                        }
-                        Spacer(Modifier.height(10.dp))
-                        Text(
-                            "Scan with the viewer's phone, on the same Wi-Fi. Valid ~2 minutes, one device.",
-                            color = TextDim, fontSize = 13.sp,
-                        )
-                    }
-                }
+        Column(modifier = Modifier.widthIn(max = 880.dp).fillMaxWidth()) {
+            AppHeader(title = "Viewers") {
+                OutlinedButton(onClick = onBack) { Text("Back") }
             }
-        }
+            Spacer(Modifier.height(Space.xl))
 
-        // Enrolled devices.
-        Column(
-            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
-                .background(SurfaceColor).padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("ENROLLED DEVICES", color = TextDim, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-                Spacer(Modifier.weight(1f))
-                OutlinedButton(onClick = { scope.launch { refresh() } }) { Text("Refresh") }
-            }
-            if (viewers.isEmpty()) {
-                Text("No devices yet. Add one above.", color = TextDim, fontSize = 14.sp)
-            }
-            for (v in viewers) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(v.name, color = TextColor, fontSize = 16.sp)
-                        val seen = v.lastSeenAt?.let {
-                            "last seen " + SimpleDateFormat("MMM d, HH:mm", Locale.getDefault()).format(Date(it))
-                        } ?: "never connected"
-                        Text(
-                            (if (v.revoked) "Revoked · " else "Active · ") + seen,
-                            color = if (v.revoked) Danger else Ok, fontSize = 13.sp,
-                        )
-                    }
-                    Spacer(Modifier.width(12.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(Space.lg)) {
+                // ---- Add a viewer --------------------------------------------
+                AccessCard(modifier = Modifier.weight(1f)) {
+                    Text("ADD A VIEWER", color = TextDim, style = Type.label)
+                    OutlinedTextField(
+                        value = name, onValueChange = { name = it },
+                        label = { Text("Device name (e.g. \"Mom's iPhone\")") }, singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
                     Button(
                         onClick = {
+                            busy = true
                             scope.launch {
+                                error = null
                                 try {
-                                    withContext(Dispatchers.IO) { api.setRevoked(v.id, !v.revoked) }
-                                    refresh()
+                                    val url = withContext(Dispatchers.IO) { api.startEnroll(name.ifBlank { "New device" }) }
+                                    qr = QrGen.encode(url, 640).asImageBitmap()
                                 } catch (e: Exception) {
-                                    error = "Action failed: ${e.message}"
+                                    error = "Couldn't create a code: ${e.message}"
                                 }
+                                busy = false
                             }
                         },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (v.revoked) Primary else Danger,
-                        ),
-                    ) { Text(if (v.revoked) "Re-enable" else "Revoke") }
+                        enabled = !busy,
+                        shape = Radius.button,
+                        modifier = Modifier.fillMaxWidth().height(52.dp),
+                    ) { Text(if (qr == null) "Show QR code" else "New QR code", style = Type.bodyStrong) }
+
+                    qr?.let { bmp ->
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            Box(
+                                modifier = Modifier.clip(Radius.control).background(Color.White).padding(Space.md),
+                            ) {
+                                Image(bitmap = bmp, contentDescription = "Enrollment QR", modifier = Modifier.size(240.dp))
+                            }
+                            Spacer(Modifier.height(Space.md))
+                            Text(
+                                "Scan with the viewer's phone, on the same Wi-Fi. Valid ~2 minutes, one device.",
+                                color = TextDim, style = Type.caption,
+                            )
+                        }
+                    }
+                }
+
+                // ---- Enrolled devices ----------------------------------------
+                AccessCard(modifier = Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("ENROLLED DEVICES", color = TextDim, style = Type.label)
+                        Spacer(Modifier.weight(1f))
+                        OutlinedButton(onClick = { scope.launch { refresh() } }) { Text("Refresh") }
+                    }
+                    if (viewers.isEmpty()) {
+                        Text("No devices yet. Add one on the left.", color = TextFaint, style = Type.body)
+                    }
+                    viewers.forEachIndexed { i, v ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(v.name, color = TextColor, style = Type.bodyStrong)
+                                val seen = v.lastSeenAt?.let {
+                                    "last seen " + SimpleDateFormat("MMM d, HH:mm", Locale.getDefault()).format(Date(it))
+                                } ?: "never connected"
+                                Text(
+                                    (if (v.revoked) "Revoked · " else "Active · ") + seen,
+                                    color = if (v.revoked) Danger else Ok, style = Type.caption,
+                                )
+                            }
+                            Spacer(Modifier.width(Space.md))
+                            Button(
+                                onClick = {
+                                    scope.launch {
+                                        try {
+                                            withContext(Dispatchers.IO) { api.setRevoked(v.id, !v.revoked) }
+                                            refresh()
+                                        } catch (e: Exception) {
+                                            error = "Action failed: ${e.message}"
+                                        }
+                                    }
+                                },
+                                shape = Radius.button,
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (v.revoked) Primary else Danger,
+                                ),
+                            ) { Text(if (v.revoked) "Re-enable" else "Revoke") }
+                        }
+                        if (i < viewers.lastIndex) {
+                            Box(Modifier.fillMaxWidth().height(1.dp).background(OutlineSoft))
+                        }
+                    }
                 }
             }
-        }
 
-        error?.let { Text(it, color = Danger, fontSize = 13.sp) }
+            error?.let {
+                Spacer(Modifier.height(Space.lg))
+                Text(it, color = Danger, style = Type.caption)
+            }
+        }
     }
+}
+
+/** A rounded surface card used by the two columns. */
+@Composable
+private fun AccessCard(modifier: Modifier = Modifier, content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
+    Column(
+        modifier = modifier.clip(Radius.card).background(SurfaceColor).padding(Space.lg),
+        verticalArrangement = Arrangement.spacedBy(Space.md),
+        content = content,
+    )
 }

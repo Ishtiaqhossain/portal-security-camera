@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -319,7 +320,7 @@ private fun HomeScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(top = Space.screenTop, start = Space.screenH, end = Space.screenH, bottom = Space.xxl),
+            .padding(top = Space.screenTop, start = Space.screenH, end = Space.screenH, bottom = 64.dp),
     ) {
         AppHeader(title = "Portal Security")
         Spacer(Modifier.height(Space.lg))
@@ -379,11 +380,25 @@ private fun HomeScreen(
                     }
                 }
 
-                // Footer nav — balances the Arm button on the opposite baseline.
-                Row(
-                    modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(Space.md),
-                ) {
+                // Primary action, anchored under the status hero.
+                Column(modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()) {
+                    ArmButton(
+                        running = state.running,
+                        canArm = config.isValid,
+                        onArm = onArm,
+                        onDisarm = onDisarm,
+                    )
+                }
+            }
+
+            // ---- Controls ----------------------------------------------------
+            Column(
+                modifier = Modifier.width(470.dp).fillMaxHeight(),
+                verticalArrangement = Arrangement.spacedBy(Space.md),
+            ) {
+                ModeCard(mode = mode, quality = config.quality, motionEnabled = config.motionEnabled, onModeChange = onModeChange)
+                ActivityCard(events = motionLog, now = now)
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.md)) {
                     OutlinedButton(
                         onClick = onOpenManage,
                         shape = Radius.button,
@@ -395,21 +410,6 @@ private fun HomeScreen(
                         modifier = Modifier.weight(1f).height(Touch.min),
                     ) { Text("Settings", style = Type.bodyStrong) }
                 }
-            }
-
-            // ---- Controls ----------------------------------------------------
-            Column(
-                modifier = Modifier.width(470.dp).fillMaxHeight(),
-                verticalArrangement = Arrangement.spacedBy(Space.md),
-            ) {
-                ModeCard(mode = mode, quality = config.quality, motionEnabled = config.motionEnabled, onModeChange = onModeChange)
-                ActivityCard(events = motionLog, now = now)
-                ArmButton(
-                    running = state.running,
-                    canArm = config.isValid,
-                    onArm = onArm,
-                    onDisarm = onDisarm,
-                )
             }
         }
     }
@@ -699,85 +699,94 @@ private fun SettingsScreen(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(top = 60.dp, start = 28.dp, end = 28.dp, bottom = 28.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+            .padding(top = Space.screenTop, start = Space.screenH, end = Space.screenH, bottom = Space.xxl),
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        AppHeader(title = "Settings") {
-            OutlinedButton(onClick = onBack) { Text("Back") }
-        }
+        Column(modifier = Modifier.widthIn(max = 880.dp).fillMaxWidth()) {
+            AppHeader(title = "Settings") {
+                OutlinedButton(onClick = onBack) { Text("Back") }
+            }
+            Spacer(Modifier.height(Space.xl))
 
-        SectionCard("Connection") {
-            OutlinedTextField(
-                value = serverUrl, onValueChange = { serverUrl = it },
-                label = { Text("Signaling server (wss://…)") }, singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            OutlinedTextField(
-                value = token, onValueChange = { token = it },
-                label = { Text("Camera token") }, singleLine = true,
-                visualTransformation = PasswordVisualTransformation(),
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
+            Row(horizontalArrangement = Arrangement.spacedBy(Space.lg)) {
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Space.lg)) {
+                    SectionCard("Connection") {
+                        OutlinedTextField(
+                            value = serverUrl, onValueChange = { serverUrl = it },
+                            label = { Text("Signaling server (wss://…)") }, singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        OutlinedTextField(
+                            value = token, onValueChange = { token = it },
+                            label = { Text("Camera token") }, singleLine = true,
+                            visualTransformation = PasswordVisualTransformation(),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                    SectionCard("Camera") {
+                        SettingRow("Quality") {
+                            SegmentedControl(
+                                labels = VideoQuality.entries.map { it.label },
+                                selected = VideoQuality.entries.indexOf(quality),
+                            ) { idx -> quality = VideoQuality.entries[idx] }
+                        }
+                    }
+                }
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Space.lg)) {
+                    SectionCard("Mode") {
+                        SegmentedControl(
+                            labels = listOf("Drop In", "Active"),
+                            selected = if (mode == CameraMode.ACTIVE) 1 else 0,
+                        ) { idx -> mode = if (idx == 1) CameraMode.ACTIVE else CameraMode.DROP_IN }
+                        Text(
+                            if (mode == CameraMode.DROP_IN)
+                                "Drop In — camera activates only when a viewer connects."
+                            else
+                                "Active — camera streams continuously in the background.",
+                            color = TextDim, style = Type.caption,
+                        )
+                    }
+                    SectionCard("Alerts") {
+                        ToggleRow(
+                            title = "Motion alerts",
+                            subtitle = if (mode == CameraMode.ACTIVE) "Notify viewers when motion is detected."
+                            else "Requires Active mode (camera must stay on to detect motion).",
+                            checked = motion && mode == CameraMode.ACTIVE,
+                            enabled = mode == CameraMode.ACTIVE,
+                            onCheckedChange = { motion = it },
+                        )
+                    }
+                    SectionCard("Startup") {
+                        ToggleRow(
+                            title = "Start on boot",
+                            subtitle = "Re-arm automatically in the background after the device restarts.",
+                            checked = startOnBoot,
+                            enabled = true,
+                            onCheckedChange = { startOnBoot = it },
+                        )
+                    }
+                }
+            }
 
-        SectionCard("Mode") {
-            SegmentedControl(
-                labels = listOf("Drop In", "Active"),
-                selected = if (mode == CameraMode.ACTIVE) 1 else 0,
-            ) { idx -> mode = if (idx == 1) CameraMode.ACTIVE else CameraMode.DROP_IN }
-            Text(
-                if (mode == CameraMode.DROP_IN)
-                    "Drop In — camera activates only when a viewer connects."
-                else
-                    "Active — camera streams continuously in the background.",
-                color = TextDim, fontSize = 13.sp,
-            )
-        }
-
-        SectionCard("Camera") {
-            SettingRow("Quality") {
-                SegmentedControl(
-                    labels = VideoQuality.entries.map { it.label },
-                    selected = VideoQuality.entries.indexOf(quality),
-                ) { idx -> quality = VideoQuality.entries[idx] }
+            Spacer(Modifier.height(Space.xl))
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("Portal Security · v0.2.0", color = TextFaint, style = Type.caption)
+                Spacer(Modifier.weight(1f))
+                Button(
+                    onClick = {
+                        onSave(
+                            initial.copy(
+                                serverUrl = serverUrl, cameraToken = token, mode = mode,
+                                motionEnabled = motion && mode == CameraMode.ACTIVE,
+                                quality = quality, startOnBoot = startOnBoot,
+                            )
+                        )
+                    },
+                    shape = Radius.button,
+                    modifier = Modifier.height(Touch.action).widthIn(min = 220.dp),
+                ) { Text("Save", style = Type.titleSmall) }
             }
         }
-
-        SectionCard("Alerts") {
-            ToggleRow(
-                title = "Motion alerts",
-                subtitle = if (mode == CameraMode.ACTIVE) "Notify viewers when motion is detected."
-                else "Requires Active mode (camera must stay on to detect motion).",
-                checked = motion && mode == CameraMode.ACTIVE,
-                enabled = mode == CameraMode.ACTIVE,
-                onCheckedChange = { motion = it },
-            )
-        }
-
-        SectionCard("Startup") {
-            ToggleRow(
-                title = "Start on boot",
-                subtitle = "Re-arm automatically in the background after the device restarts.",
-                checked = startOnBoot,
-                enabled = true,
-                onCheckedChange = { startOnBoot = it },
-            )
-        }
-
-        Button(
-            onClick = {
-                onSave(
-                    initial.copy(
-                        serverUrl = serverUrl, cameraToken = token, mode = mode,
-                        motionEnabled = motion && mode == CameraMode.ACTIVE,
-                        quality = quality, startOnBoot = startOnBoot,
-                    )
-                )
-            },
-            modifier = Modifier.fillMaxWidth().height(54.dp),
-        ) { Text("Save", fontSize = 17.sp, fontWeight = FontWeight.Bold) }
-
-        Text("Portal Security · v0.2.0", color = TextDim, fontSize = 12.sp)
     }
 }
 
@@ -786,7 +795,7 @@ private fun SettingsScreen(
 // ---------------------------------------------------------------------------
 
 @Composable
-private fun AppHeader(title: String, trailing: @Composable () -> Unit = {}) {
+fun AppHeader(title: String, trailing: @Composable () -> Unit = {}) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         ShieldStatus(color = Primary, modifier = Modifier.size(26.dp))
         Spacer(Modifier.width(Space.md))
