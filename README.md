@@ -95,8 +95,10 @@ and a phone or browser to watch from.
    docker compose up -d --build
    ```
 
-2. **Install the app on the Portal.** Build `portal-app/` (see
-   [`portal-app/README.md`](portal-app/README.md)) and install the APK. In
+2. **Install the app on the Portal.** Easiest path: download the prebuilt APK
+   from the [**Releases**](../../releases/latest) page and sideload it — the
+   step-by-step [**Install guide**](INSTALL.md) walks through it. (Prefer to
+   build from source? See [`portal-app/README.md`](portal-app/README.md).) In
    **Settings**, set the **Signaling server** to `wss://<your-domain>`. On the
    first **Arm**, the Portal provisions its own camera key — there's no token to
    type.
@@ -115,7 +117,8 @@ admin console at `https://<your-domain>/admin.html`.
 > then with the server running: `node test-signaling.mjs && node test-enroll.mjs
 > && node test-camera-key.mjs && node test-push.mjs`.
 
-See [`portal-app/README.md`](portal-app/README.md) for Android build/deploy,
+See [`INSTALL.md`](INSTALL.md) for a simple install guide,
+[`portal-app/README.md`](portal-app/README.md) for Android build/deploy,
 [`SECURITY.md`](SECURITY.md) for the security model, and
 [`AGENTS.md`](AGENTS.md) for the protocol + Portal conventions.
 

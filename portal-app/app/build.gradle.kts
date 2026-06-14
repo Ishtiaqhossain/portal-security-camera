@@ -22,6 +22,39 @@ android {
         versionName = "0.1.0"
     }
 
+    // Release signing. If a release keystore is configured (via local.properties
+    // keys release.storeFile/storePassword/keyAlias/keyPassword, or the matching
+    // RELEASE_STORE_FILE/… env vars), use it. Otherwise fall back to the debug
+    // key so `assembleRelease` still produces an installable APK for sideloading
+    // onto the Portal — never block a release build on a missing keystore.
+    val releaseProps = Properties().apply {
+        val f = rootProject.file("local.properties")
+        if (f.exists()) f.inputStream().use { load(it) }
+    }
+    fun releaseProp(key: String, env: String): String? =
+        (project.findProperty(key) as String?)
+            ?: releaseProps.getProperty(key)
+            ?: System.getenv(env)
+    val releaseStorePath = releaseProp("release.storeFile", "RELEASE_STORE_FILE")
+    val hasReleaseKeystore = releaseStorePath != null && rootProject.file(releaseStorePath).exists()
+
+    signingConfigs {
+        if (hasReleaseKeystore) {
+            create("release") {
+                storeFile = rootProject.file(releaseStorePath!!)
+                storePassword = releaseProp("release.storePassword", "RELEASE_STORE_PASSWORD")
+                keyAlias = releaseProp("release.keyAlias", "RELEASE_KEY_ALIAS")
+                keyPassword = releaseProp("release.keyPassword", "RELEASE_KEY_PASSWORD")
+            }
+        }
+    }
+
+    lint {
+        // targetSdk 29 is intentional (Portal runs old AOSP) — don't fail the
+        // release build's lintVital check on the expected "expired target SDK".
+        disable += "ExpiredTargetSdkVersion"
+    }
+
     buildTypes {
         debug {
             // Local convenience: pre-fill the signaling server so a fresh debug
@@ -41,6 +74,13 @@ android {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             buildConfigField("String", "DEFAULT_SERVER_URL", "\"\"")
+            // Use the release keystore if configured, else the debug key so the
+            // APK is always installable (sideload-only app, no Play Store).
+            signingConfig = if (hasReleaseKeystore) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
         }
     }
 
