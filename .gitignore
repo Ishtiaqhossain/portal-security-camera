@@ -13,6 +13,10 @@ portal-app/.idea/
 portal-app/captures/
 *.iml
 
+# Release signing — never commit keystores or signing secrets
+*.keystore
+*.jks
+
 # OS
 .DS_Store
 signaling-server/subscriptions.json

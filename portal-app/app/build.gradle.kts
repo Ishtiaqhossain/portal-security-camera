@@ -18,8 +18,8 @@ android {
         // Portal devices run older AOSP. minSdk 28, target 29 per Portal guidance.
         minSdk = 28
         targetSdk = 29
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.1.1"
     }
 
     // Release signing. If a release keystore is configured (via local.properties
