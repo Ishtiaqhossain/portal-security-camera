@@ -130,10 +130,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // Keep the screen awake so the Portal's inactivity timeout / screensaver
-        // doesn't background us. If something does background the app, onStop
-        // fails safe to Disarmed rather than leaving a frozen, un-resumable feed.
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         pinSet = PinManager.isPinSet(this)
         setContent {
             PortalSecurityTheme {
@@ -202,6 +198,18 @@ private fun AppRoot(
     var screen by remember { mutableStateOf(Screen.HOME) }
     var config by remember { mutableStateOf(Config.load(context)) }
     val state by (service?.state?.collectAsState() ?: remember { mutableStateOf(CameraAgentService.AgentState()) })
+
+    // Keep the Portal's display awake only while armed, so its inactivity
+    // timeout / screensaver can't background us and silently fail-safe to
+    // Disarmed mid-stream. While disarmed there's nothing to protect, so let
+    // the screen sleep normally instead of pinning the Portal on at an idle
+    // dashboard.
+    LaunchedEffect(state.running) {
+        val flag = WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+        (context as? Activity)?.window?.let {
+            if (state.running) it.addFlags(flag) else it.clearFlags(flag)
+        }
+    }
 
     // A sensitive action waiting on the PIN: its prompt title + what to run.
     // Within the grace window after a correct PIN, skip the prompt entirely.
