@@ -71,9 +71,18 @@ android {
             buildConfigField("String", "DEFAULT_SERVER_URL", "\"$devServer\"")
         }
         release {
-            isMinifyEnabled = false
+            // R8 full mode: shrink + optimize + obfuscate the bytecode and strip
+            // unused resources. Keep rules live in proguard-rules.pro (WebRTC JNI
+            // bridge is kept wholesale). Produces mapping.txt for crash de-obfuscation.
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             buildConfigField("String", "DEFAULT_SERVER_URL", "\"\"")
+            // Portal devices are all ARM (Snapdragon). Ship only the ARM WebRTC
+            // native libs; dropping x86/x86_64 removes ~25 MB the Portal can't load.
+            ndk {
+                abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+            }
             // Use the release keystore if configured, else the debug key so the
             // APK is always installable (sideload-only app, no Play Store).
             signingConfig = if (hasReleaseKeystore) {
@@ -94,6 +103,24 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+    }
+
+    packaging {
+        jniLibs {
+            // Strip debug symbols from native .so (WebRTC's libjingle is the bulk
+            // of the APK). Default keepDebugSymbols is empty -> strip everything.
+            useLegacyPackaging = false
+        }
+        resources {
+            // Drop build metadata not needed at runtime.
+            excludes += listOf(
+                "META-INF/*.version",
+                "META-INF/*.kotlin_module",
+                "META-INF/{AL2.0,LGPL2.1}",
+                "DebugProbesKt.bin",
+                "kotlin-tooling-metadata.json",
+            )
+        }
     }
 }
 
