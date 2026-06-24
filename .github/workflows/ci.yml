@@ -1,0 +1,42 @@
+name: CI
+
+# Build-check the Android app on every push/PR so breakage is caught before a
+# release tag. Builds the debug APK (no signing secrets needed) and uploads it
+# as a short-lived artifact for manual smoke-testing.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'portal-app/**'
+      - '.github/workflows/ci.yml'
+  pull_request:
+    paths:
+      - 'portal-app/**'
+      - '.github/workflows/ci.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # AGP 8.5 / Gradle 8.9 need JDK 17-21 (not the newer defaults). Match the
+      # local toolchain documented in CLAUDE.md.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Build debug APK
+        working-directory: portal-app
+        run: ./gradlew :app:assembleDebug --no-daemon --stacktrace
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: app-debug
+          path: portal-app/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
